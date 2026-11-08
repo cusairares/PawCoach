@@ -1,0 +1,7 @@
+# Ultralytics, ONNX, and OpenCV dependencies for the Raspberry Pi
+# Pure lightweight C++/ARM64 execution: no PyTorch required on device!
+numpy>=1.24.0
+opencv-python-headless>=4.8.0
+onnxruntime>=1.16.0
+pyserial>=3.5
+pygame>=2.5.0
