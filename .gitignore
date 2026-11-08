@@ -1,0 +1,25 @@
+# Reference repository & third-party code
+reference_repo/
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+env/
+.env
+
+# Large datasets & raw media
+data/raw/
+data/processed/
+*.tar.gz
+
+# Sample video files (raw downloads and large generated MP4s)
+samples/*.mp4
+samples/*.webm
+samples/*.ogv
+
+# Local hardware logs / db / custom audio
+data/events.db
+data/audio/custom/
