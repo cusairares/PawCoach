@@ -28,3 +28,6 @@ samples/*.ogv
 # Local hardware logs / db / custom audio
 data/events.db
 data/audio/custom/
+
+.vite/
+frontend/.vite/
