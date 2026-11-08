@@ -1,0 +1,49 @@
+description: Ultralytics YOLO11n-pose model trained on D:\Facultate\SAS Hackaton\training\dog_pose_fixed.yaml
+author: Ultralytics
+date: "2026-11-08T21:29:57.571237+02:00"
+version: "8.4.207"
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: pose
+head: Pose
+batch: 1
+imgsz:
+- 320
+- 320
+names:
+  0: dog
+args:
+  batch: 1
+  quantize: 16
+channels: 3
+end2end: false
+kpt_shape:
+- 24
+- 3
+kpt_names:
+  0:
+  - front_left_paw
+  - front_left_knee
+  - front_left_elbow
+  - rear_left_paw
+  - rear_left_knee
+  - rear_left_elbow
+  - front_right_paw
+  - front_right_knee
+  - front_right_elbow
+  - rear_right_paw
+  - rear_right_knee
+  - rear_right_elbow
+  - tail_start
+  - tail_end
+  - left_ear_base
+  - right_ear_base
+  - nose
+  - chin
+  - left_ear_tip
+  - right_ear_tip
+  - left_eye
+  - right_eye
+  - withers
+  - throat
