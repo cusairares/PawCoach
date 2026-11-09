@@ -14,6 +14,16 @@ Active command (executed exactly once, parameters come from the app)
     3. success -> marker + treat (if allowed);  timeout -> logged failure
     Passive capture is suspended while a command runs. A command arriving while
     another is running is rejected ("busy"); the app decides what to do.
+
+App features (multi-dog, schedules, Stay)
+    * ``context`` - set by the runtime: which dog is being trained (``dog_id``), which
+      schedule is running (``schedule_id``) and optional passive overrides
+      (``passive_enabled`` / ``passive_poses``) for scheduled learning windows.
+      Every logged event is tagged with dog_id / schedule_id.
+    * ``treat_guard(now, context) -> (ok, reason)`` - extra treat rules on top of the
+      device-wide ones (per-dog daily limit, per-schedule max treats / min interval).
+    * A command may carry ``hold_s`` (how long the pose must be held, e.g. Stay = 5 s)
+      and ``dog_id`` / ``schedule_id``; see ``src/training_plan.TrainingCommand``.
 """
 from __future__ import annotations
 
@@ -40,9 +50,12 @@ class ActiveCommand:
 
 class BehaviorController:
     def __init__(self, audio, feeder, event_log: EventLog, settings: SettingsStore,
-                 config: EngineConfig, wall_clock: Callable[[], float] = time.time):
+                 config: EngineConfig, wall_clock: Callable[[], float] = time.time,
+                 treat_guard: Optional[Callable[[float, Dict], Tuple[bool, str]]] = None):
         self.audio, self.feeder, self.event_log = audio, feeder, event_log
         self.settings, self.config, self.wall_clock = settings, config, wall_clock
+        self.treat_guard = treat_guard
+        self.context: Dict = {}
         self._commands: "queue.Queue[CommandRequest]" = queue.Queue()
         self._cancel = threading.Event()
         self.active: Optional[ActiveCommand] = None
@@ -95,8 +108,9 @@ class BehaviorController:
         req = cmd.request
         s = self.settings.current
         entered_after_cue = active.entry_id > cmd.entry_id_at_start
+        hold_s = getattr(req, "hold_s", None) or self.config.active_dwell_s   # per-command hold (Stay)
         if (active.state == req.pose and entered_after_cue
-                and active.held_for(now) >= self.config.active_dwell_s):
+                and active.held_for(now) >= hold_s):
             self.audio.play(["marker"])
             treat, reason = False, "reward_disabled"
             if s.active_command_reward:
@@ -117,12 +131,17 @@ class BehaviorController:
         self._passive_handled_entry = passive.entry_id
         log.info("[command] %s -> %s (%s)", req.pose, kind, detail or "ok")
         return self._log(Event(kind, target=req.pose, detected=active.state, reaction_s=reaction_s,
-                               treat=treat, command_id=req.command_id, detail=detail))
+                               treat=treat, command_id=req.command_id, detail=detail,
+                               dog_id=getattr(req, "dog_id", None),
+                               schedule_id=getattr(req, "schedule_id", None)))
 
     def _update_passive(self, now: float, passive: StateTracker) -> List[Event]:
         s = self.settings.current
         pose = passive.state
-        if (not s.passive_enabled or pose not in s.passive_poses
+        # Scheduled learning windows may override the app-wide passive settings.
+        enabled = self.context.get("passive_enabled", s.passive_enabled)
+        poses = self.context.get("passive_poses", s.passive_poses)
+        if (not enabled or pose not in poses
                 or passive.entry_id == self._passive_handled_entry
                 or passive.held_for(now) < self.config.passive_dwell_s):
             return []
@@ -148,13 +167,27 @@ class BehaviorController:
             return False, "daily_limit"
         if self._last_treat is not None and now - self._last_treat < s.min_seconds_between_treats:
             return False, "min_interval"
+        if self.treat_guard is not None:                    # per-dog / per-schedule limits
+            ok, reason = self.treat_guard(now, self.context)
+            if not ok:
+                return False, reason
         if not self.feeder.dispense():
             return False, "feeder_error"
         self._last_treat = now
         return True, "ok"
 
+    def give_treat(self, now: float) -> Tuple[bool, str]:
+        """Manual treat from the app (Treat button). Same limits as automatic treats."""
+        treat, reason = self._try_treat(now)
+        self._log(Event("manual_treat", treat=treat, detail=None if treat else reason))
+        return treat, reason
+
     def _log(self, event: Event) -> Event:
         event.ts = self.wall_clock()
+        if event.dog_id is None:
+            event.dog_id = self.context.get("dog_id")
+        if event.schedule_id is None:
+            event.schedule_id = self.context.get("schedule_id")
         self.event_log.add(event)
         return event
 
@@ -164,5 +197,7 @@ class BehaviorController:
             req = self.active.request
             timeout = self.settings.current.active_command_timeout_s
             st.update(target=req.pose, command_id=req.command_id,
-                      remaining_s=max(0.0, timeout - (now - self.active.started_at)))
+                      remaining_s=max(0.0, timeout - (now - self.active.started_at)),
+                      hold_s=getattr(req, "hold_s", None) or self.config.active_dwell_s,
+                      exercise_id=getattr(req, "exercise_id", None))
         return st
