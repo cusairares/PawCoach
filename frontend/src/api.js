@@ -6,9 +6,22 @@
 
 export const API_BASE = (import.meta.env?.VITE_API_URL ?? "/api").replace(/\/$/, "");
 
+function formatDetail(detail, status) {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((e) => {
+        const field = Array.isArray(e.loc) ? e.loc.filter((p) => p !== "body").join(".") : "";
+        return field ? `Invalid ${field}: ${e.msg}` : e.msg;
+      })
+      .join("; ");
+  }
+  return `Request failed (${status})`;
+}
+
 export class ApiError extends Error {
   constructor(status, detail) {
-    super(typeof detail === "string" ? detail : `Request failed (${status})`);
+    super(formatDetail(detail, status));
     this.status = status;
     this.detail = detail;
   }
@@ -36,8 +49,10 @@ export const api = {
   health: () => request("GET", "/health", undefined, { timeoutMs: 1500 }),
   status: () => request("GET", "/status", undefined, { timeoutMs: 3000 }),
   settings: () => request("GET", "/settings"),
+  updateSettings: (patch) => request("PATCH", "/settings", patch),
 
   dogs: () => request("GET", "/dogs"),
+  updateDog: (dogId, patch) => request("PATCH", `/dogs/${dogId}`, patch),
   selectDog: (dogId) => request("POST", `/dogs/${dogId}/select`),
   setStage: (dogId, exerciseId, stage) => request("PATCH", `/dogs/${dogId}/exercises/${exerciseId}`, { stage }),
 

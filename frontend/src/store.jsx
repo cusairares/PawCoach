@@ -1,4 +1,4 @@
-// App-wide state (dogs, schedules, device settings, toasts).
+// App-wide state (dogs, schedules, device settings, toasts, errors).
 //
 // On start the app looks for the backend (python -m server):
 //   source "api"   data comes from the server and every change is sent to it
@@ -20,12 +20,21 @@ export function StoreProvider({ children }) {
   const [feeder, setFeeder] = useState({ online: true, hopper: 68, portion: "small" });
   const [camera, setCamera] = useState({ online: true, nightVision: true, microphone: false, speaker: true });
   const [toast, setToast] = useState(null);
+  const [error, setError] = useState(null);
   const toastTimer = useRef(null);
 
   const showToast = useCallback((text) => {
     clearTimeout(toastTimer.current);
     setToast(text);
     toastTimer.current = setTimeout(() => setToast(null), 2200);
+  }, []);
+
+  const showError = useCallback((message) => {
+    setError(String(message || "Something went wrong"));
+  }, []);
+
+  const clearError = useCallback(() => {
+    setError(null);
   }, []);
 
   // ---------------------------------------------------------------- loading
@@ -86,16 +95,16 @@ export function StoreProvider({ children }) {
   }, [updateDog]);
 
   // ---------------------------------------------------------------- actions (both modes)
-  /** Optimistic local change, then the server; on error the server's data comes back. */
+  /** Optimistic local change, then the server; on error the server's error dialog is shown and data comes back. */
   const sync = useCallback(async (call) => {
     if (source !== "api") return;
     try {
       await call();
     } catch (err) {
-      showToast(err.message || "The server didn't accept that");
+      showError(err.message || "The server didn't accept that");
     }
     refresh().catch(() => {});
-  }, [source, refresh, showToast]);
+  }, [source, refresh, showError]);
 
   const setExerciseStage = useCallback((dogId, exId, stage) => {
     updateDog(dogId, (d) => ({ ...d, exercises: d.exercises.map((e) => (e.id === exId ? { ...e, stage } : e)) }));
@@ -116,17 +125,19 @@ export function StoreProvider({ children }) {
     if (source !== "api") return true;
     try {
       return (await api.testTreat()).ok;
-    } catch {
+    } catch (err) {
+      showError(err.message || "The feeder didn't respond");
       return false;
     }
-  }, [source]);
+  }, [source, showError]);
 
   const value = useMemo(() => ({
-    source, health, dogs, schedules, week, feeder, camera, toast,
+    source, health, dogs, schedules, week, feeder, camera, toast, error,
     getDog: (id) => dogs.find((d) => d.id === String(id)),
-    showToast, refresh, giveTreat, addSuccess, setExerciseStage, updateSchedule, testTreat, setFeeder, setCamera,
-  }), [source, health, dogs, schedules, week, feeder, camera, toast, showToast, refresh, giveTreat, addSuccess,
-    setExerciseStage, updateSchedule, testTreat]);
+    showToast, showError, clearError, refresh, giveTreat, addSuccess, setExerciseStage, updateSchedule, testTreat,
+    setFeeder, setCamera,
+  }), [source, health, dogs, schedules, week, feeder, camera, toast, error, showToast, showError, clearError,
+    refresh, giveTreat, addSuccess, setExerciseStage, updateSchedule, testTreat]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

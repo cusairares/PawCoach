@@ -35,7 +35,8 @@ function describe(e, ctx) {
       return e.detail === "cancelled" ? { kind: "info", text: "Cue cancelled" }
         : { kind: "bad", text: `No reaction to “${name}” in ${ctx.timeoutS} s` };
     case "passive_capture":
-      return { kind: "good", text: `Caught “${name}” on ${ctx.his} own · ${e.treat ? "treat given" : reasonText(e.detail?.replace("silent:", ""))}` };
+      if ((e.detail ?? "").startsWith("silent")) return null;
+      return { kind: "good", text: `Caught “${name}” on ${ctx.his} own · ${e.treat ? "treat given" : reasonText(e.detail)}` };
     case "level_up":
       return { kind: "good", text: `Level up! “${ex}” is now a ${e.hold_s} s hold` };
     case "level_down":
@@ -101,7 +102,7 @@ export function useApiLiveSession({ dog, onChange }) {
             changed = true;
             const msg = describe(e, ctxRef.current);
             if (!msg) continue;
-            if (msg.kind === "good" && (e.type === "command_success" || e.type === "passive_capture")
+            if (e.treat && (e.type === "command_success" || e.type === "passive_capture")
               && st.mode === "mock") playClick();                         // the device speaker clicks in camera mode
             setLast(msg);
           }

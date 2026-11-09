@@ -304,3 +304,13 @@ p { margin: 0; }
 .splash { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
 .splash-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--honey); animation: splash-pulse 1s ease-in-out infinite; }
 @keyframes splash-pulse { 50% { transform: scale(1.6); opacity: 0.5; } }
+
+/* Error dialog overlay */
+.error-overlay {
+  position: fixed; inset: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(59, 47, 40, 0.45);
+}
+.error-dialog {
+  max-width: 360px; box-shadow: 0 16px 40px rgba(59, 47, 40, 0.25);
+}
