@@ -29,7 +29,7 @@ class SimPoseIn(Strict):
 
 
 class DogIn(Strict):
-    _nullable_fields: ClassVar[Set[str]] = {"breed", "birth_date", "weight_kg", "color"}
+    _nullable_fields: ClassVar[Set[str]] = {"breed", "birth_date", "weight_kg", "color", "age_text", "image_url"}
     name: str = Field(min_length=1, max_length=40)
     breed: Optional[str] = None
     birth_date: Optional[str] = Field(None, description="YYYY-MM-DD")
@@ -37,10 +37,12 @@ class DogIn(Strict):
     color: Optional[str] = None
     daily_treat_limit: int = Field(20, ge=0, le=500)
     pronoun: Literal["he", "she"] = "he"
+    age_text: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class DogPatch(Strict):
-    _nullable_fields: ClassVar[Set[str]] = {"breed", "birth_date", "weight_kg", "color"}
+    _nullable_fields: ClassVar[Set[str]] = {"breed", "birth_date", "weight_kg", "color", "age_text", "image_url"}
     name: Optional[str] = Field(None, min_length=1, max_length=40)
     breed: Optional[str] = None
     birth_date: Optional[str] = None
@@ -48,6 +50,15 @@ class DogPatch(Strict):
     color: Optional[str] = None
     daily_treat_limit: Optional[int] = Field(None, ge=0, le=500)
     pronoun: Optional[Literal["he", "she"]] = None
+    age_text: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class MomentLikeIn(Strict):
+    _nullable_fields: ClassVar[Set[str]] = {"clientId"}
+    client_id: str = Field("default", min_length=1, max_length=80)
+    clientId: Optional[str] = Field(None, min_length=1, max_length=80)
+    liked: bool = True
 
 
 class StageIn(Strict):

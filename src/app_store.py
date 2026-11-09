@@ -1,11 +1,12 @@
-"""Persistent app data: dog profiles, exercise progress, schedules and highlights.
+"""Persistent app data: dog profiles, exercise progress, schedules, highlights and moments.
 
-Stored in ``data/app/app.db`` (SQLite), separate from the event log so the vision /
-behavior code stays independent of the app's data model.
+Stored in ``data/app/app.db`` (SQLite with WAL mode, indexes and a busy timeout), separate from
+the event log so the vision / behavior code stays independent of the app's data model.
 """
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
 import threading
 import time
@@ -16,6 +17,7 @@ from typing import Dict, List, Optional
 from .config import DATA_DIR
 from .training_plan import EXERCISES, Progress, new_progress
 
+
 APP_DIR = DATA_DIR / "app"
 
 SCHEMA = """
@@ -24,8 +26,10 @@ CREATE TABLE IF NOT EXISTS dogs (
     name TEXT NOT NULL,
     breed TEXT,
     birth_date TEXT,                 -- YYYY-MM-DD
+    age_text TEXT,
     weight_kg REAL,
     color TEXT,                      -- avatar color in the app
+    image_url TEXT,
     pronoun TEXT NOT NULL DEFAULT 'he',  -- he | she, for the app's texts
     daily_treat_limit INTEGER NOT NULL DEFAULT 20,
     archived INTEGER NOT NULL DEFAULT 0,
@@ -52,7 +56,46 @@ CREATE TABLE IF NOT EXISTS highlights (
     clip_path TEXT,
     duration_s REAL
 );
+CREATE TABLE IF NOT EXISTS moments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dog_id INTEGER,
+    dog_name TEXT NOT NULL,
+    dog_breed TEXT,
+    dog_image TEXT,
+    caption TEXT NOT NULL,
+    video_url TEXT NOT NULL,
+    likes_count INTEGER NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS moment_likes (
+    moment_id INTEGER NOT NULL,
+    client_id TEXT NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (moment_id, client_id)
+);
+
+-- Indexes for fast querying, sorting, and random video selection under high load
+CREATE INDEX IF NOT EXISTS idx_moments_active_id ON moments (archived, id);
+CREATE INDEX IF NOT EXISTS idx_moments_dog_id ON moments (dog_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_moment_likes_moment ON moment_likes (moment_id);
+CREATE INDEX IF NOT EXISTS idx_highlights_dog_ts ON highlights (dog_id, ts DESC);
 """
+
+INITIAL_MOMENTS_SEED = [
+    {"dog_name": "Bruno", "dog_breed": "Labrador", "dog_image": "/dogs/bruno.jpg",
+     "caption": "Mastering the ultimate slow sit roll 🎾", "video_url": "/moments/dog1.mp4", "likes_count": 142},
+    {"dog_name": "Luna", "dog_breed": "Border Collie", "dog_image": "/dogs/luna.jpg",
+     "caption": "Wait for the sudden jump celebration! ✨", "video_url": "/moments/dog2.mp4", "likes_count": 289},
+    {"dog_name": "Toby", "dog_breed": "Beagle", "dog_image": "/dogs/toby.jpg",
+     "caption": "When the treat dispenser sound makes you freeze 🍪", "video_url": "/moments/dog4.mp4", "likes_count": 95},
+    {"dog_name": "Rocky", "dog_breed": "Malinois", "dog_image": "/dogs/rocky.jpg",
+     "caption": "Perfect posture check in 0.4 seconds flat ⚡", "video_url": "/moments/dog_labradoodle_stand.webm", "likes_count": 310},
+    {"dog_name": "Oscar", "dog_breed": "Corgi", "dog_image": "/dogs/oscar.jpg",
+     "caption": "Nap posture classification: 100% relaxed 💤", "video_url": "/moments/dog_laying_relax.webm", "likes_count": 418},
+    {"dog_name": "Bella", "dog_breed": "Golden Retriever", "dog_image": "/dogs/bella.jpg",
+     "caption": "Spins like a whirlwind when hearing good boy! 🌪️", "video_url": "/moments/dog_spin_standing.webm", "likes_count": 523},
+]
 
 
 @dataclass
@@ -64,6 +107,8 @@ class Dog:
     color: Optional[str] = None
     daily_treat_limit: int = 20
     pronoun: str = "he"                        # he | she
+    age_text: Optional[str] = None
+    image_url: Optional[str] = None
     id: Optional[int] = None
     archived: bool = False
     created_at: float = field(default_factory=time.time)
@@ -124,31 +169,56 @@ def _schedule_from(data: Dict, id_: int) -> Schedule:
 
 class AppStore:
     def __init__(self, path: Path = APP_DIR / "app.db"):
+        self._lock = threading.RLock()
+
         path = Path(path)
         if str(path) != ":memory:":
             path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+
+        # WAL lets the API read while the engine thread writes
+        if str(path) != ":memory:":
+            self._conn.execute("PRAGMA journal_mode=WAL;")
+        self._conn.execute("PRAGMA synchronous=NORMAL;")
+        self._conn.execute("PRAGMA busy_timeout=5000;")
         self._conn.executescript(SCHEMA)
         self._migrate()
-        self._lock = threading.RLock()
+        self._seed_initial_moments()
 
     def _migrate(self) -> None:
         """Adds columns that older app.db files don't have yet."""
-        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(dogs)")}
-        if "pronoun" not in cols:
-            self._conn.execute("ALTER TABLE dogs ADD COLUMN pronoun TEXT NOT NULL DEFAULT 'he'")
+        with self._lock:
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(dogs)")}
+            for col, ddl in (("pronoun", "TEXT NOT NULL DEFAULT 'he'"), ("age_text", "TEXT"),
+                             ("image_url", "TEXT")):
+                if col not in cols:
+                    self._conn.execute(f"ALTER TABLE dogs ADD COLUMN {col} {ddl}")
             self._conn.commit()
+
+    def _seed_initial_moments(self) -> None:
+        with self._lock:
+            count = self._conn.execute("SELECT COUNT(*) AS c FROM moments").fetchone()["c"]
+            if count == 0:
+                now = time.time()
+                for i, m in enumerate(INITIAL_MOMENTS_SEED):
+                    self._conn.execute(
+                        "INSERT INTO moments (dog_name, dog_breed, dog_image, caption, video_url, likes_count, created_at)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (m["dog_name"], m["dog_breed"], m["dog_image"], m["caption"], m["video_url"],
+                         m["likes_count"], now - (i * 3600))
+                    )
+                self._conn.commit()
 
     # ------------------------------------------------------------------ dogs
     def add_dog(self, dog: Dog) -> Dog:
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "INSERT INTO dogs (name, breed, birth_date, weight_kg, color, daily_treat_limit, pronoun,"
-                " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (dog.name, dog.breed, dog.birth_date, dog.weight_kg, dog.color, dog.daily_treat_limit,
-                 dog.pronoun, dog.created_at))
-        dog.id = cur.lastrowid
+                "INSERT INTO dogs (name, breed, birth_date, age_text, weight_kg, color, image_url,"
+                " daily_treat_limit, pronoun, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (dog.name, dog.breed, dog.birth_date, dog.age_text, dog.weight_kg, dog.color, dog.image_url,
+                 dog.daily_treat_limit, dog.pronoun, dog.created_at))
+            dog.id = cur.lastrowid
         for ex_id in EXERCISES:
             self.save_progress(new_progress(dog.id, ex_id))
         return dog
@@ -164,8 +234,8 @@ class AppStore:
         return Dog(**{**dict(r), "archived": bool(r["archived"])}) if r else None
 
     def update_dog(self, dog_id: int, values: Dict) -> Dog:
-        allowed = {"name", "breed", "birth_date", "weight_kg", "color", "daily_treat_limit", "pronoun",
-                   "archived"}
+        allowed = {"name", "breed", "birth_date", "age_text", "weight_kg", "color", "image_url",
+                   "daily_treat_limit", "pronoun", "archived"}
         unknown = set(values) - allowed
         if unknown:
             raise KeyError(f"Unknown dog fields: {sorted(unknown)}")
@@ -247,3 +317,112 @@ class AppStore:
         with self._lock:
             r = self._conn.execute("SELECT * FROM highlights WHERE id = ?", (highlight_id,)).fetchone()
         return dict(r) if r else None
+
+    # ------------------------------------------------------------------ moments & likes
+    def add_moment(self, m: Dict) -> Dict:
+        """Add a funny pet moment to the pool."""
+        item = {
+            "dog_id": m.get("dog_id"),
+            "dog_name": m.get("dog_name", "Good Boy"),
+            "dog_breed": m.get("dog_breed"),
+            "dog_image": m.get("dog_image", "/dogs/default.jpg"),
+            "caption": m.get("caption", "Funny pet moment"),
+            "video_url": m["video_url"],
+            "likes_count": int(m.get("likes_count", 0)),
+            "archived": int(bool(m.get("archived", False))),
+            "created_at": float(m.get("created_at", time.time())),
+        }
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "INSERT INTO moments (dog_id, dog_name, dog_breed, dog_image, caption, video_url, likes_count, archived, created_at)"
+                " VALUES (:dog_id, :dog_name, :dog_breed, :dog_image, :caption, :video_url, :likes_count, :archived, :created_at)",
+                item
+            )
+            item["id"] = cur.lastrowid
+        return item
+
+    def random_moments(self, limit: int = 5, exclude_ids: Optional[List[int]] = None,
+                       client_id: str = "default", rng: Optional[random.Random] = None) -> List[Dict]:
+        """Indexed random video selection algorithm.
+
+        Uses covering index `idx_moments_active_id` on (archived, id) to fetch active IDs in an
+        index-only scan, samples random IDs without a full-table sort, and does primary key batch lookups.
+        """
+        exclude = set(exclude_ids or [])
+        picker = rng or random
+
+        with self._lock:
+            # Index-only scan on idx_moments_active_id
+            rows = self._conn.execute("SELECT id FROM moments WHERE archived = 0 ORDER BY id").fetchall()
+            all_ids = [r["id"] for r in rows]
+
+            eligible = [i for i in all_ids if i not in exclude]
+            if len(eligible) < limit:
+                eligible = all_ids  # reset pool if exhausted to allow infinite continuous scrolling
+
+            selected_ids = picker.sample(eligible, min(limit, len(eligible))) if eligible else []
+            if not selected_ids:
+                return []
+
+            placeholders = ",".join("?" for _ in selected_ids)
+            query = f"SELECT * FROM moments WHERE id IN ({placeholders})"
+            data_rows = {r["id"]: dict(r) for r in self._conn.execute(query, selected_ids).fetchall()}
+
+            # Batch lookup liked status for this client
+            likes_query = f"SELECT moment_id FROM moment_likes WHERE client_id = ? AND moment_id IN ({placeholders})"
+            liked_ids = {r["moment_id"] for r in self._conn.execute(likes_query, (client_id, *selected_ids)).fetchall()}
+
+        out = []
+        for mid in selected_ids:
+            if mid in data_rows:
+                row = data_rows[mid]
+                row["liked"] = mid in liked_ids
+                out.append(row)
+        return out
+
+    def set_moment_like(self, moment_id: int, client_id: str, liked: bool) -> Dict:
+        """Idempotent like/unlike operation with atomic counter update.
+
+        Safe to retry: repeating the same request gives the same result.
+        """
+        now = time.time()
+        with self._lock, self._conn:
+            existing = self._conn.execute(
+                "SELECT 1 FROM moment_likes WHERE moment_id = ? AND client_id = ?",
+                (moment_id, client_id)
+            ).fetchone()
+
+            if liked and not existing:
+                self._conn.execute(
+                    "INSERT INTO moment_likes (moment_id, client_id, updated_at) VALUES (?, ?, ?)",
+                    (moment_id, client_id, now)
+                )
+                self._conn.execute(
+                    "UPDATE moments SET likes_count = likes_count + 1 WHERE id = ?",
+                    (moment_id,)
+                )
+            elif not liked and existing:
+                self._conn.execute(
+                    "DELETE FROM moment_likes WHERE moment_id = ? AND client_id = ?",
+                    (moment_id, client_id)
+                )
+                self._conn.execute(
+                    "UPDATE moments SET likes_count = MAX(0, likes_count - 1) WHERE id = ?",
+                    (moment_id,)
+                )
+
+            current = self._conn.execute(
+                "SELECT likes_count FROM moments WHERE id = ?",
+                (moment_id,)
+            ).fetchone()
+
+            count = current["likes_count"] if current else 0
+
+        return {"moment_id": moment_id, "liked": bool(liked), "likes_count": count}
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass

@@ -26,7 +26,7 @@ export default function Camera() {
           </span>
         </div>
         <div className="zone-preview" role="img" aria-label="Camera preview with the training zone marked">
-          <div className="cam-floor" />
+          <img src="/dogs/living_room_dog.jpg" alt="Camera feed preview" className="zone-preview-img" />
           <div className="zone-box"><span>Training zone</span></div>
         </div>
         <span className="muted-2 small">Your dog is only tracked inside the marked zone. Keep the feeder in frame.</span>

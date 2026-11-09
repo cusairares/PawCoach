@@ -52,6 +52,7 @@ export const api = {
   updateSettings: (patch) => request("PATCH", "/settings", patch),
 
   dogs: () => request("GET", "/dogs"),
+  addDog: (body) => request("POST", "/dogs", body),
   updateDog: (dogId, patch) => request("PATCH", `/dogs/${dogId}`, patch),
   selectDog: (dogId) => request("POST", `/dogs/${dogId}/select`),
   setStage: (dogId, exerciseId, stage) => request("PATCH", `/dogs/${dogId}/exercises/${exerciseId}`, { stage }),
@@ -60,6 +61,14 @@ export const api = {
   updateSchedule: (id, patch) => request("PATCH", `/schedules/${id}`, patch),
 
   daily: (days = 7) => request("GET", `/stats/daily?days=${days}`),
+
+  momentsRandom: (limit = 5, exclude = [], clientId = "default") =>
+    request("GET", `/moments/random?limit=${limit}&exclude=${exclude.join(",")}&clientId=${clientId}`),
+  likeMoment: (id, clientId, liked) =>
+    request("POST", `/moments/${id}/like`, { clientId, liked }),
+
+  leaderboard: (category = "score", scope = "city") =>
+    request("GET", `/leaderboard?category=${category}&scope=${scope}`),
 
   command: (exercise) => request("POST", "/commands", { exercise }),
   treat: () => request("POST", "/treat"),

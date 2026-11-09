@@ -12,7 +12,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -25,9 +25,10 @@ from src.app_runtime import AppRuntime, Busy
 from src.app_store import Dog, Schedule
 from src.config import ROOT
 from src.live_view import encode_jpeg, render_frame
+from src.repository import SQLiteRepository
 
-from .schemas import (CommandIn, DogIn, DogPatch, ScheduleIn, SchedulePatch, SettingsPatch, SimPoseIn,
-                      StageIn)
+from .schemas import (CommandIn, DogIn, DogPatch, MomentLikeIn, ScheduleIn, SchedulePatch, SettingsPatch,
+                      SimPoseIn, StageIn)
 
 log = logging.getLogger("server")
 
@@ -56,9 +57,22 @@ def _format_validation_error(exc: RequestValidationError) -> str:
     return "; ".join(parts) or "Invalid request body"
 
 
+def _moment_dict(m: Dict) -> Dict:
+    return {
+        **m,
+        "dogName": m.get("dog_name"),
+        "dogBreed": m.get("dog_breed"),
+        "dogImage": m.get("dog_image"),
+        "videoUrl": m.get("video_url"),
+        "likesCount": m.get("likes_count", 0),
+    }
+
+
 def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> FastAPI:
     """``run_loop=False`` (tests): the engine thread isn't started, call ``runtime.step()`` yourself."""
     rt = runtime or runtime_from_env()
+    # Leaderboard data: its own SQLite file next to app.db (the two have different tables)
+    community = SQLiteRepository(rt.data_dir / "app" / "community.db")
     store = rt.store
 
     @asynccontextmanager
@@ -68,6 +82,7 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
             log.info("engine started (%s mode)", rt.mode)
         yield
         rt.stop()
+        community.close()
 
     app = FastAPI(title="PawCoach API", version="0.1", lifespan=lifespan)
     app.state.runtime = rt
@@ -145,7 +160,7 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
 
     @app.get("/api/video", tags=["live"])
     async def video(request: Request):
-        """MJPEG stream of the camera with the detection box (use it as an <img> src)."""
+        """MJPEG stream of the camera (use it as an <img> src)."""
         async def frames():
             while not await request.is_disconnected():
                 frame, st = rt.latest_frame()
@@ -241,7 +256,7 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
         rt.invalidate_schedules()
         return {"ok": True}
 
-    # ------------------------------------------------------------------ highlights
+    # ------------------------------------------------------------------ highlights & moments
     @app.get("/api/highlights", tags=["highlights"])
     def list_highlights(dog_id: Optional[int] = None, limit: int = 50):
         return store.highlights(dog_id, limit=max(1, min(limit, 200)))
@@ -252,6 +267,25 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
         if not h or not h["clip_path"] or not Path(h["clip_path"]).exists():
             raise HTTPException(404, "Clip not available")
         return FileResponse(h["clip_path"], media_type="video/mp4")
+
+    @app.get("/api/moments/random", tags=["moments"])
+    def random_moments(limit: int = 5, exclude: Optional[str] = None,
+                       client_id: str = "default", clientId: Optional[str] = None):
+        exclude_ids = [int(x) for x in exclude.split(",") if x.strip().isdigit()] if exclude else []
+        cid = clientId or client_id
+        rows = store.random_moments(limit=max(1, min(limit, 50)), exclude_ids=exclude_ids, client_id=cid)
+        return [_moment_dict(m) for m in rows]
+
+    @app.post("/api/moments/{moment_id}/like", tags=["moments"])
+    def like_moment(moment_id: int, body: MomentLikeIn):
+        cid = body.clientId or body.client_id
+        res = store.set_moment_like(moment_id, cid, body.liked)
+        return {**res, "momentId": res["moment_id"], "likesCount": res["likes_count"]}
+
+    # ------------------------------------------------------------------ leaderboard
+    @app.get("/api/leaderboard", tags=["leaderboard"])
+    def leaderboard(category: str = "score", scope: str = "city"):
+        return community.get_leaderboard(category=category, scope=scope)
 
     # ------------------------------------------------------------------ settings, events, stats
     @app.get("/api/settings", tags=["settings"])

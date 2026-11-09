@@ -1,4 +1,5 @@
 import Icon from "../components/Icon.jsx";
+import { Avatar } from "../components/ui.jsx";
 import { Link } from "../router.jsx";
 import { useStore } from "../store.jsx";
 
@@ -25,7 +26,7 @@ export default function Settings() {
       <h1>Settings</h1>
 
       <button type="button" className="card account-row" onClick={() => showToast("Account settings aren't in the mockup yet")}>
-        <span className="avatar" style={{ width: 48, height: 48, background: "#FCEBD2", fontSize: 18 }}>R</span>
+        <Avatar dog={{ name: "Family Pack", image: "/dogs/bella.jpg" }} size={48} />
         <span className="grow stack-0 left">
           <strong>Your account</strong>
           <span className="muted">Family · {dogs.length} {dogs.length === 1 ? "dog" : "dogs"} · 2 members</span>

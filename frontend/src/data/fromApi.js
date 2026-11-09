@@ -1,13 +1,14 @@
-// Turns backend data (snake_case, see server/main.py) into the shapes the screens use
-// (the same shapes as data/mock.js, so the screens work with both).
-import { AVATAR, DOGS as MOCK_DOGS } from "./mock.js";
+// Turns backend data (snake_case, see server/main.py) into the shapes the screens use.
+import { AVATAR } from "./mock.js";
 
 const DAY_LETTER = ["S", "M", "T", "W", "T", "F", "S"];           // Date.getDay(): 0 = Sunday
 const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; // backend: 0 = Monday
 
-// The leaderboard needs a shared online service that doesn't exist yet,
-// so the score / rank / city still come from the mock data (matched by name).
-const COMMUNITY = Object.fromEntries(MOCK_DOGS.map((d) => [d.name, { score: d.score, rank: d.rank, city: d.city }]));
+const COMMUNITY = {
+  Bruno: { score: 912, rank: 7, city: "Bucharest", image: "/dogs/bruno.jpg", age: "3 yrs" },
+  Luna: { score: 948, rank: 3, city: "Bucharest", image: "/dogs/luna.jpg", age: "2 yrs" },
+  Toby: { score: 604, rank: 41, city: "Bucharest", image: "/dogs/toby.jpg", age: "8 mos" },
+};
 
 const pct = (rate) => (rate == null ? 0 : Math.round(rate * 100));
 const fmtS = (s) => `${Number.isInteger(s) ? s : s.toFixed(1)} s`;
@@ -108,8 +109,9 @@ export function toDog(d, schedules) {
     pronoun: d.pronoun ?? "he",
     initial: d.name.charAt(0).toUpperCase(),
     color: d.color || AVATAR.honey,
+    image: d.image_url || community.image || "/dogs/default.jpg",
     breed: d.breed || "Mixed breed",
-    age: age(d.birth_date),
+    age: d.age_text || age(d.birth_date) || community.age || "1 yr",
     weight: d.weight_kg ? `${d.weight_kg} kg` : "",
     score: community.score ?? null,
     rank: community.rank ?? null,

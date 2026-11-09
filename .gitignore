@@ -31,3 +31,7 @@ data/audio/custom/
 
 .vite/
 frontend/.vite/
+
+# Moment videos: too big for git, keep them locally in frontend/public/moments/
+frontend/public/moments/*.mp4
+frontend/public/moments/*.webm

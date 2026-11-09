@@ -32,6 +32,9 @@ class ApiTest(unittest.TestCase):
         self.api = TestClient(create_app(self.rt, run_loop=False))
         self.bruno = next(d for d in self.api.get("/api/dogs").json() if d["name"] == "Bruno")
 
+    def tearDown(self) -> None:
+        self.rt.stop()
+
     def run_for(self, seconds: float, dt: float = 0.1) -> None:
         for _ in range(int(seconds / dt)):
             self.clock.t += dt
@@ -106,13 +109,31 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(self.api.get("/api/schedules").json()), 5)
 
     def test_add_and_archive_dog(self) -> None:
-        r = self.api.post("/api/dogs", json={"name": "Rex", "breed": "Mixed", "pronoun": "he"})
+        r = self.api.post("/api/dogs", json={"name": "Rex", "breed": "Mixed", "pronoun": "he",
+                                             "age_text": "2 yrs", "image_url": "/dogs/preset_1.jpg"})
         self.assertEqual(r.status_code, 201, r.text)
         rex = r.json()
+        self.assertEqual(rex["age_text"], "2 yrs")
+        self.assertEqual(rex["image_url"], "/dogs/preset_1.jpg")
         self.assertEqual(len(rex["exercises"]), 5)
         self.assertEqual(self.api.patch(f"/api/dogs/{rex['id']}", json={"weight_kg": 12}).json()["weight_kg"], 12)
         self.assertTrue(self.api.delete(f"/api/dogs/{rex['id']}").json()["ok"])
         self.assertEqual(self.api.get(f"/api/dogs/{rex['id']}").status_code, 404)
+
+    def test_moments_and_leaderboard_endpoints(self) -> None:
+        moments = self.api.get("/api/moments/random?limit=3&clientId=u1").json()
+        self.assertEqual(len(moments), 3)
+        mid = moments[0]["id"]
+        orig_likes = moments[0]["likesCount"]
+        like_res = self.api.post(f"/api/moments/{mid}/like", json={"clientId": "u1", "liked": True}).json()
+        self.assertTrue(like_res["liked"])
+        self.assertEqual(like_res["likesCount"], orig_likes + 1)
+
+        lb = self.api.get("/api/leaderboard?category=score&scope=city").json()
+        self.assertEqual(len(lb), 10)
+        self.assertEqual(lb[0]["rank"], 1)
+        # the leaderboard lives in its own file inside the server's data folder, next to app.db
+        self.assertTrue((self.rt.data_dir / "app" / "community.db").exists())
 
     def test_snapshot_and_stats(self) -> None:
         self.run_for(0.5)

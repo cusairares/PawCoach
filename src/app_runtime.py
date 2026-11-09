@@ -115,7 +115,7 @@ class AppRuntime:
         if mode not in ("mock", "camera"):
             raise ValueError("mode must be 'mock' or 'camera'")
         self.mode, self.fps, self.clock, self.wall = mode, fps, clock, wall
-        data_dir = Path(data_dir)
+        data_dir = self.data_dir = Path(data_dir)
 
         self.config = EngineConfig()
         self.settings = SettingsStore(data_dir / "app_settings.json")
@@ -191,6 +191,10 @@ class AppRuntime:
         self._running = False
         if self._camera is not None:
             self._camera.release()
+        if hasattr(self, 'store'):
+            self.store.close()
+        if hasattr(self, 'event_log'):
+            self.event_log.close()
 
     def _run(self) -> None:
         interval = 1.0 / self.fps
@@ -547,9 +551,9 @@ def seed_demo(store: AppStore, settings: SettingsStore, wall: Optional[float] = 
     now_wall = time.time() if wall is None else wall
     # device-wide cap (per-dog limits apply below) and a short gap so live demos aren't blocked
     settings.update({"daily_treat_limit": 100, "min_seconds_between_treats": 3})
-    bruno = store.add_dog(Dog("Bruno", "Labrador", "2023-09-14", 31, "#F29E6D", 35))
-    luna = store.add_dog(Dog("Luna", "Border Collie", "2024-06-02", 17, "#A9C9A4", 24, pronoun="she"))
-    toby = store.add_dog(Dog("Toby", "Beagle", "2026-03-01", 9, "#B9CFE6", 18))
+    bruno = store.add_dog(Dog("Bruno", "Labrador", "2023-09-14", 31, "#F29E6D", 35, age_text="3 yrs", image_url="/dogs/bruno.jpg"))
+    luna = store.add_dog(Dog("Luna", "Border Collie", "2024-06-02", 17, "#A9C9A4", 24, pronoun="she", age_text="2 yrs", image_url="/dogs/luna.jpg"))
+    toby = store.add_dog(Dog("Toby", "Beagle", "2026-03-01", 9, "#B9CFE6", 18, age_text="8 mos", image_url="/dogs/toby.jpg"))
     days = 86400
     stages = {   # exercise: (stage, moments caught, hold seconds, successes in the last 10, started days ago)
         bruno.id: {"down": ("learn", 18, None, 0, 4), "sit": ("train", 0, 2.5, 9, 20),
