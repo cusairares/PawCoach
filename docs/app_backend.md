@@ -1,14 +1,14 @@
 # Funcțiile aplicației în backend
 
 Ce există în aplicație (`frontend/`) există acum și în backend, peste pipeline-ul de vision
-și peste `BehaviorController`. **Nu există încă un server HTTP.** Aplicația merge în continuare pe
-date de test. API-ul se va face separat, cu FastAPI, folosind `src/app_runtime.py`.
+și peste `BehaviorController`. Serverul HTTP (FastAPI) e în `server/` și e descris în
+[`api.md`](api.md); aplicația se conectează la el.
 
 ## Încearcă
 
 ```bash
 python -m src.app_runtime                     # câine simulat, ~30 s, afișează evenimentele
-python -m pytest tests/test_app_backend.py    # 16 teste, fără cameră și fără torch
+python -m pytest tests/test_app_backend.py    # 17 teste, fără cameră și fără torch
 ```
 
 ## Ce din aplicație există acum și în backend
