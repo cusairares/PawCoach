@@ -25,7 +25,7 @@ from src.app_runtime import AppRuntime, Busy
 from src.app_store import Dog, Schedule
 from src.config import ROOT
 from src.live_view import encode_jpeg, render_frame
-from src.repository import get_repository
+from src.repository import SQLiteRepository
 
 from .schemas import (CommandIn, DogIn, DogPatch, MomentLikeIn, ScheduleIn, SchedulePatch, SettingsPatch,
                       SimPoseIn, StageIn)
@@ -71,6 +71,8 @@ def _moment_dict(m: Dict) -> Dict:
 def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> FastAPI:
     """``run_loop=False`` (tests): the engine thread isn't started, call ``runtime.step()`` yourself."""
     rt = runtime or runtime_from_env()
+    # Leaderboard data: its own SQLite file next to app.db (the two have different tables)
+    community = SQLiteRepository(rt.data_dir / "app" / "community.db")
     store = rt.store
 
     @asynccontextmanager
@@ -80,6 +82,7 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
             log.info("engine started (%s mode)", rt.mode)
         yield
         rt.stop()
+        community.close()
 
     app = FastAPI(title="PawCoach API", version="0.1", lifespan=lifespan)
     app.state.runtime = rt
@@ -157,7 +160,7 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
 
     @app.get("/api/video", tags=["live"])
     async def video(request: Request):
-        """MJPEG stream of the camera with the detection box (use it as an <img> src)."""
+        """MJPEG stream of the camera (use it as an <img> src)."""
         async def frames():
             while not await request.is_disconnected():
                 frame, st = rt.latest_frame()
@@ -282,7 +285,7 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
     # ------------------------------------------------------------------ leaderboard
     @app.get("/api/leaderboard", tags=["leaderboard"])
     def leaderboard(category: str = "score", scope: str = "city"):
-        return get_repository().get_leaderboard(category=category, scope=scope)
+        return community.get_leaderboard(category=category, scope=scope)
 
     # ------------------------------------------------------------------ settings, events, stats
     @app.get("/api/settings", tags=["settings"])

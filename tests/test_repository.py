@@ -2,12 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.repository import (
-    IPetRepository,
-    ResilientAPRepository,
-    SQLiteRepository,
-    get_repository,
-)
+from src import repository
+from src.app_store import AppStore, Dog
+from src.repository import IPetRepository, SQLiteRepository, get_repository
 
 
 class PetRepositoryTest(unittest.TestCase):
@@ -114,24 +111,28 @@ class PetRepositoryTest(unittest.TestCase):
         self.assertFalse(updated["nightVision"])
 
 
-class ResilientAPRepositoryTest(unittest.TestCase):
+class SeparateDatabaseTest(unittest.TestCase):
+    """The repository must never share a file with AppStore (their tables differ)."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.tmp.name) / "test_ap.db"
-        self.fallback = SQLiteRepository(self.db_path)
-        self.ap_repo = ResilientAPRepository(primary=None, fallback=self.fallback)
+        repository._DEFAULT_REPO = None
 
     def tearDown(self):
-        self.ap_repo.close()
+        if repository._DEFAULT_REPO is not None:
+            repository._DEFAULT_REPO.close()
+        repository._DEFAULT_REPO = None
         self.tmp.cleanup()
 
-    def test_fallback_serves_data_in_ap_mode(self):
-        dogs = self.ap_repo.get_dogs()
-        self.assertEqual(len(dogs), 3)
-
-        new_dog = self.ap_repo.create_dog({"name": "Bella 2", "image": "/dogs/bella.jpg"})
-        self.assertEqual(new_dog["name"], "Bella 2")
-        self.assertEqual(len(self.ap_repo.get_dogs()), 4)
+    def test_repository_and_app_store_live_side_by_side(self):
+        app_dir = Path(self.tmp.name) / "app"
+        repo = get_repository(app_dir / "community.db")
+        self.assertEqual(len(repo.get_dogs()), 3)
+        store = AppStore(app_dir / "app.db")
+        store.add_dog(Dog("Rex"))
+        self.assertEqual([d.name for d in store.dogs()], ["Rex"])
+        self.assertIs(get_repository(), repo)                  # singleton
+        store.close()
 
 
 if __name__ == "__main__":

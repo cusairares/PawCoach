@@ -132,6 +132,8 @@ class ApiTest(unittest.TestCase):
         lb = self.api.get("/api/leaderboard?category=score&scope=city").json()
         self.assertEqual(len(lb), 10)
         self.assertEqual(lb[0]["rank"], 1)
+        # the leaderboard lives in its own file inside the server's data folder, next to app.db
+        self.assertTrue((self.rt.data_dir / "app" / "community.db").exists())
 
     def test_snapshot_and_stats(self) -> None:
         self.run_for(0.5)

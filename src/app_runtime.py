@@ -115,7 +115,7 @@ class AppRuntime:
         if mode not in ("mock", "camera"):
             raise ValueError("mode must be 'mock' or 'camera'")
         self.mode, self.fps, self.clock, self.wall = mode, fps, clock, wall
-        data_dir = Path(data_dir)
+        data_dir = self.data_dir = Path(data_dir)
 
         self.config = EngineConfig()
         self.settings = SettingsStore(data_dir / "app_settings.json")

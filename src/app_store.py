@@ -1,14 +1,11 @@
 """Persistent app data: dog profiles, exercise progress, schedules, highlights and moments.
 
-Supports both local SQLite (with WAL mode, composite indexes and busy-timeout for edge reliability)
-and PostgreSQL (when DATABASE_URL is configured). If PostgreSQL is unavailable or encounters network
-partitions, operations gracefully fall back to local storage (CAP: AP - Availability and Partition Tolerance).
+Stored in ``data/app/app.db`` (SQLite with WAL mode, indexes and a busy timeout), separate from
+the event log so the vision / behavior code stays independent of the app's data model.
 """
 from __future__ import annotations
 
 import json
-import logging
-import os
 import random
 import sqlite3
 import threading
@@ -20,7 +17,6 @@ from typing import Dict, List, Optional
 from .config import DATA_DIR
 from .training_plan import EXERCISES, Progress, new_progress
 
-log = logging.getLogger(__name__)
 
 APP_DIR = DATA_DIR / "app"
 
@@ -172,9 +168,7 @@ def _schedule_from(data: Dict, id_: int) -> Schedule:
 
 
 class AppStore:
-    def __init__(self, path: Path = APP_DIR / "app.db", database_url: Optional[str] = None):
-        self.database_url = database_url or os.getenv("DATABASE_URL")
-        self._pg_conn = None
+    def __init__(self, path: Path = APP_DIR / "app.db"):
         self._lock = threading.RLock()
 
         path = Path(path)
@@ -183,7 +177,7 @@ class AppStore:
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
 
-        # Optimize SQLite for edge reliability & high-concurrency readers (AP mode)
+        # WAL lets the API read while the engine thread writes
         if str(path) != ":memory:":
             self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA synchronous=NORMAL;")
@@ -191,9 +185,6 @@ class AppStore:
         self._conn.executescript(SCHEMA)
         self._migrate()
         self._seed_initial_moments()
-
-        if self.database_url:
-            self._init_postgres()
 
     def _migrate(self) -> None:
         """Adds columns that older app.db files don't have yet."""
@@ -218,16 +209,6 @@ class AppStore:
                          m["likes_count"], now - (i * 3600))
                     )
                 self._conn.commit()
-
-    def _init_postgres(self) -> None:
-        try:
-            import psycopg2
-            self._pg_conn = psycopg2.connect(self.database_url, connect_timeout=3)
-            self._pg_conn.autocommit = True
-            log.info("AppStore connected to PostgreSQL: %s", self.database_url)
-        except Exception as e:
-            log.warning("PostgreSQL unavailable (%s). Falling back to SQLite for AP resilience.", e)
-            self._pg_conn = None
 
     # ------------------------------------------------------------------ dogs
     def add_dog(self, dog: Dog) -> Dog:
@@ -402,8 +383,7 @@ class AppStore:
     def set_moment_like(self, moment_id: int, client_id: str, liked: bool) -> Dict:
         """Idempotent like/unlike operation with atomic counter update.
 
-        Safe for write-behind retries and network partitions (AP). Repeating the same
-        request multiple times is completely idempotent.
+        Safe to retry: repeating the same request gives the same result.
         """
         now = time.time()
         with self._lock, self._conn:
@@ -446,8 +426,3 @@ class AppStore:
                 self._conn.close()
             except Exception:
                 pass
-            if self._pg_conn:
-                try:
-                    self._pg_conn.close()
-                except Exception:
-                    pass

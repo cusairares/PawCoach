@@ -2,19 +2,16 @@
 
 Architecture:
     IPetRepository (ABC)
-        ├── SQLiteRepository        (Edge local database with WAL mode & indexes)
-        ├── PostgresRepository      (Central shared database when configured)
-        └── ResilientAPRepository   (Composite AP implementation: primary + edge fallback)
+        └── SQLiteRepository        (local database with WAL mode & indexes)
 
-Consuming this layer allows switching backends, running in offline/edge mode on Raspberry Pi,
-and integrating with upcoming FastAPI dependencies via `Depends(get_repository)`.
+Stored in its own file (``community.db``), separate from the app's ``app.db`` (src/app_store.py).
+The server keeps it inside its data folder (``data/app/server/app/community.db``).
 """
 from __future__ import annotations
 
 import abc
 import json
 import logging
-import os
 import random
 import sqlite3
 import threading
@@ -204,7 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_leaderboard_cat_rank ON leaderboard_entries (cate
 class SQLiteRepository(IPetRepository):
     """Concrete SQLite implementation of IPetRepository for local edge operation."""
 
-    def __init__(self, path: Path = DB_DIR / "app.db"):
+    def __init__(self, path: Path = DB_DIR / "community.db"):
         self.path = Path(path)
         if str(self.path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -590,180 +587,12 @@ class SQLiteRepository(IPetRepository):
                 pass
 
 
-# ------------------------------------------------------------------ PostgreSQL
-class PostgresRepository(IPetRepository):
-    """Concrete PostgreSQL implementation of IPetRepository when a central DB is available."""
-
-    def __init__(self, dsn: Optional[str] = None):
-        self.dsn = dsn or os.getenv("DATABASE_URL", "postgresql://pawcoach:pawcoach@localhost:5432/pawcoach")
-        self._conn = None
-        self._lock = threading.RLock()
-        self._connect()
-
-    def _connect(self) -> None:
-        import psycopg2
-        self._conn = psycopg2.connect(self.dsn, connect_timeout=3)
-        self._conn.autocommit = True
-
-    def get_dogs(self, include_archived: bool = False) -> List[Dict]:
-        with self._lock:
-            with self._conn.cursor() as cur:
-                sql = "SELECT id, name, pronoun, initial, color, image, breed, age, weight, score, rank, city, streak, success7d, reaction, successes_today, treats_today, treat_limit, week, exercises, archived, created_at FROM dogs"
-                if not include_archived:
-                    sql += " WHERE archived = FALSE"
-                cur.execute(sql + " ORDER BY created_at")
-                cols = [desc[0] for desc in cur.description]
-                return [dict(zip(cols, row)) for row in cur.fetchall()]
-
-    def get_dog(self, dog_id: str) -> Optional[Dict]:
-        with self._lock:
-            with self._conn.cursor() as cur:
-                cur.execute("SELECT * FROM dogs WHERE id = %s", (dog_id,))
-                row = cur.fetchone()
-                if not row:
-                    return None
-                cols = [desc[0] for desc in cur.description]
-                return dict(zip(cols, row))
-
-    def create_dog(self, data: Dict) -> Dict:
-        # Fallback to local edge store if needed
-        return data
-
-    def update_dog(self, dog_id: str, patch: Dict) -> Optional[Dict]:
-        return self.get_dog(dog_id)
-
-    def give_treat(self, dog_id: str) -> Dict:
-        return {"ok": True}
-
-    def add_success(self, dog_id: str) -> Optional[Dict]:
-        return self.get_dog(dog_id)
-
-    def set_exercise_stage(self, dog_id: str, exercise_id: str, stage: str) -> Optional[Dict]:
-        return self.get_dog(dog_id)
-
-    def get_schedules(self, dog_id: Optional[str] = None) -> List[Dict]:
-        return []
-
-    def update_schedule(self, schedule_id: int, patch: Dict) -> Optional[Dict]:
-        return None
-
-    def get_random_moments(self, limit: int = 5, exclude_ids: Optional[List[int]] = None,
-                           client_id: str = "default") -> List[Dict]:
-        return []
-
-    def set_moment_like(self, moment_id: int, client_id: str, liked: bool) -> Dict:
-        return {"momentId": moment_id, "liked": liked, "likesCount": 0}
-
-    def get_leaderboard(self, category: str = "score", scope: str = "city") -> List[Dict]:
-        return []
-
-    def get_devices(self) -> Dict:
-        return {}
-
-    def update_device(self, device_name: str, patch: Dict) -> Dict:
-        return patch
-
-    def close(self) -> None:
-        with self._lock:
-            if self._conn:
-                try:
-                    self._conn.close()
-                except Exception:
-                    pass
-
-
-# ------------------------------------------------------------------ Resilient AP
-class ResilientAPRepository(IPetRepository):
-    """Composite repository achieving AP (Availability & Partition Tolerance).
-
-    Routes requests to PostgreSQL when available and automatically falls back to SQLite
-    during network partitions or when running offline on the edge Raspberry Pi.
-    """
-
-    def __init__(self, primary: Optional[IPetRepository] = None, fallback: Optional[IPetRepository] = None):
-        self.primary = primary
-        self.fallback = fallback or SQLiteRepository()
-
-    def _exec(self, method_name: str, *args, **kwargs):
-        if self.primary:
-            try:
-                fn = getattr(self.primary, method_name)
-                return fn(*args, **kwargs)
-            except Exception as e:
-                log.warning("Primary database partition (%s). Failing over to local edge SQLite (AP mode).", e)
-        fn = getattr(self.fallback, method_name)
-        return fn(*args, **kwargs)
-
-    def get_dogs(self, include_archived: bool = False) -> List[Dict]:
-        return self._exec("get_dogs", include_archived=include_archived)
-
-    def get_dog(self, dog_id: str) -> Optional[Dict]:
-        return self._exec("get_dog", dog_id)
-
-    def create_dog(self, data: Dict) -> Dict:
-        return self._exec("create_dog", data)
-
-    def update_dog(self, dog_id: str, patch: Dict) -> Optional[Dict]:
-        return self._exec("update_dog", dog_id, patch)
-
-    def give_treat(self, dog_id: str) -> Dict:
-        return self._exec("give_treat", dog_id)
-
-    def add_success(self, dog_id: str) -> Optional[Dict]:
-        return self._exec("add_success", dog_id)
-
-    def set_exercise_stage(self, dog_id: str, exercise_id: str, stage: str) -> Optional[Dict]:
-        return self._exec("set_exercise_stage", dog_id, exercise_id, stage)
-
-    def get_schedules(self, dog_id: Optional[str] = None) -> List[Dict]:
-        return self._exec("get_schedules", dog_id=dog_id)
-
-    def update_schedule(self, schedule_id: int, patch: Dict) -> Optional[Dict]:
-        return self._exec("update_schedule", schedule_id, patch)
-
-    def get_random_moments(self, limit: int = 5, exclude_ids: Optional[List[int]] = None,
-                           client_id: str = "default") -> List[Dict]:
-        return self._exec("get_random_moments", limit=limit, exclude_ids=exclude_ids, client_id=client_id)
-
-    def set_moment_like(self, moment_id: int, client_id: str, liked: bool) -> Dict:
-        return self._exec("set_moment_like", moment_id, client_id, liked)
-
-    def get_leaderboard(self, category: str = "score", scope: str = "city") -> List[Dict]:
-        return self._exec("get_leaderboard", category=category, scope=scope)
-
-    def get_devices(self) -> Dict:
-        return self._exec("get_devices")
-
-    def update_device(self, device_name: str, patch: Dict) -> Dict:
-        return self._exec("update_device", device_name, patch)
-
-    def close(self) -> None:
-        if self.primary:
-            try:
-                self.primary.close()
-            except Exception:
-                pass
-        if self.fallback:
-            try:
-                self.fallback.close()
-            except Exception:
-                pass
-
-
 _DEFAULT_REPO: Optional[IPetRepository] = None
 
 
-def get_repository() -> IPetRepository:
-    """Singleton getter for FastAPI dependency injection: `repo = Depends(get_repository)`."""
+def get_repository(path: Optional[Path] = None) -> IPetRepository:
+    """Singleton getter (the server passes a path inside its data folder on first use)."""
     global _DEFAULT_REPO
     if _DEFAULT_REPO is None:
-        dsn = os.getenv("DATABASE_URL")
-        primary = None
-        if dsn:
-            try:
-                primary = PostgresRepository(dsn)
-            except Exception as e:
-                log.warning("Could not initialize PostgresRepository (%s).", e)
-        fallback = SQLiteRepository()
-        _DEFAULT_REPO = ResilientAPRepository(primary=primary, fallback=fallback)
+        _DEFAULT_REPO = SQLiteRepository(path or DB_DIR / "community.db")
     return _DEFAULT_REPO

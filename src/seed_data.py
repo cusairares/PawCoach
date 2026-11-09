@@ -1,6 +1,6 @@
 """Canonical initial seed dataset migrated from frontend/src/data/mock.js.
 
-This data is populated into the database (SQLite / PostgreSQL) when the database is initialized,
+This data is populated into the SQLite database when it is initialized,
 so all domain state is persisted in relational tables and exposed via IPetRepository.
 """
 from __future__ import annotations
