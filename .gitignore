@@ -13,7 +13,12 @@ env/
 # Large datasets & raw media
 data/raw/
 data/processed/
+datasets/
+runs/
+yolo11n-pose.pt
 *.tar.gz
+*.zip
+*.part
 
 # Sample video files (raw downloads and large generated MP4s)
 samples/*.mp4
@@ -23,3 +28,6 @@ samples/*.ogv
 # Local hardware logs / db / custom audio
 data/events.db
 data/audio/custom/
+
+.vite/
+frontend/.vite/
