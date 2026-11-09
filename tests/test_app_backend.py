@@ -87,6 +87,10 @@ class StoreAndLogTest(unittest.TestCase):
         self.log = EventLog(Path(self.tmp.name) / "events.db")
 
     def tearDown(self):
+        if hasattr(self, 'store'):
+            self.store.close()
+        if hasattr(self, 'log'):
+            self.log.close()
         self.tmp.cleanup()
 
     def test_dog_gets_progress_for_every_exercise(self):
@@ -120,7 +124,11 @@ class StoreAndLogTest(unittest.TestCase):
                      " confidence REAL, command_id TEXT, detail TEXT)")
         conn.commit()
         conn.close()
-        EventLog(path).add(Event("manual_treat", treat=True, dog_id=3))
+        mig_log = EventLog(path)
+        try:
+            mig_log.add(Event("manual_treat", treat=True, dog_id=3))
+        finally:
+            mig_log.close()
 
 
 class SchedulerTest(unittest.TestCase):
@@ -148,7 +156,8 @@ class RuntimeTest(unittest.TestCase):
 
     def tearDown(self):
         self.engine.highlights.enabled = False
-        time.sleep(0.2)                                              # let clip writers finish
+        self.engine.stop()
+        time.sleep(0.2)
         self.tmp.cleanup()
 
     def set_stage(self, ex_id, stage, **kw):
@@ -229,17 +238,20 @@ class DemoDataTest(unittest.TestCase):
     def test_demo_matches_the_app_mockup(self):
         with tempfile.TemporaryDirectory() as tmp:
             rt = AppRuntime(mode="mock", data_dir=tmp, demo=True, highlights=False)
-            dogs = rt.store.dogs()
-            self.assertEqual([d.name for d in dogs], ["Bruno", "Luna", "Toby"])
-            summary = rt.dog_detail(dogs[0])
-            self.assertEqual(summary["learning"], ["Down"])
-            sit = next(e for e in summary["exercises"] if e["exercise_id"] == "sit")
-            self.assertEqual((sit["stage"], sit["hold_s"], sit["level"]), ("train", 2.5, 5))
-            per_day = {d.id: 0 for d in dogs}
-            for s in rt.store.schedules():
-                if s.enabled:
-                    per_day[s.dog_id] += s.treats_per_day
-            self.assertEqual(list(per_day.values()), [30, 10, 12])      # "Treats per day" in the app
+            try:
+                dogs = rt.store.dogs()
+                self.assertEqual([d.name for d in dogs], ["Bruno", "Luna", "Toby"])
+                summary = rt.dog_detail(dogs[0])
+                self.assertEqual(summary["learning"], ["Down"])
+                sit = next(e for e in summary["exercises"] if e["exercise_id"] == "sit")
+                self.assertEqual((sit["stage"], sit["hold_s"], sit["level"]), ("train", 2.5, 5))
+                per_day = {d.id: 0 for d in dogs}
+                for s in rt.store.schedules():
+                    if s.enabled:
+                        per_day[s.dog_id] += s.treats_per_day
+                self.assertEqual(list(per_day.values()), [30, 10, 12])
+            finally:
+                rt.stop()
 
 
 if __name__ == "__main__":
