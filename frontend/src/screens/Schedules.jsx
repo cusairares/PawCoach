@@ -43,7 +43,7 @@ export default function Schedules() {
                 <div className="grow stack-2">
                   <strong className="schedule-title">{s.title}</strong>
                   <span className="muted-2 small">
-                    {learn ? "Learning: rewarded when it happens on its own" : "Training: gets the cue · 10 reps"}
+                    {learn ? "Learning: rewarded when it happens on its own" : `Training: gets the cue · ${s.reps ?? 10} reps`}
                   </span>
                   <span className="small strong">{s.when}</span>
                 </div>
@@ -54,7 +54,7 @@ export default function Schedules() {
                 <span className="stack-0">
                   <span className="small strong">Max treats</span>
                   <span className="muted tiny">
-                    {learn ? "at most one every 30 min" : s.sessions > 1 ? `per session · ${s.sessions} sessions a day` : "per session"}
+                    {learn ? `at most one every ${s.intervalMin ?? 30} min` : s.sessions > 1 ? `per session · ${s.sessions} sessions a day` : "per session"}
                   </span>
                 </span>
                 <Stepper value={s.max} label="treats" onChange={(max) => updateSchedule(s.id, { max })} />

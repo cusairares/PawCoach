@@ -1,0 +1,6 @@
+# API server for the app (python -m server). Install: pip install -r requirements-server.txt
+-r requirements-pi.txt
+fastapi>=0.110
+uvicorn>=0.29
+httpx>=0.27          # only for the API tests (fastapi.testclient)
+pytest>=8

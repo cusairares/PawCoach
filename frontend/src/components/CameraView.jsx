@@ -1,5 +1,6 @@
-// Camera preview placeholder: draws a dog silhouette in the detected pose.
-// Will be replaced by the real video stream (BACKEND_QUESTIONS.md, Q5).
+// Live camera view. With a real camera (backend in camera mode) it shows the server's video
+// stream (`streamSrc`, MJPEG with the detection box drawn in). Otherwise it draws a dog
+// silhouette in the detected pose (simulated dog / offline demo).
 
 const BOX = {
   sitting: { left: "27%", top: "18%", width: "46%", height: "70%" },
@@ -39,18 +40,24 @@ function Silhouette({ pose }) {
   );
 }
 
-export default function CameraView({ pose, poseLabel, confidence, children }) {
+export default function CameraView({ pose, poseLabel, confidence, streamSrc = null, children }) {
   return (
     <div className="cam" role="img" aria-label={`Live camera: dog is ${poseLabel?.toLowerCase() ?? "not in view"}`}>
-      <div className="cam-floor" />
-      {pose && BOX[pose] && (
+      {streamSrc ? (
+        <img className="cam-stream" src={streamSrc} alt="" />
+      ) : (
         <>
-          <Silhouette pose={pose} />
-          <div className="cam-box" style={BOX[pose]} />
+          <div className="cam-floor" />
+          {pose && BOX[pose] && (
+            <>
+              <Silhouette pose={pose} />
+              <div className="cam-box" style={BOX[pose]} />
+            </>
+          )}
         </>
       )}
       <span className="cam-chip cam-chip--live"><span className="rec-dot" />LIVE</span>
-      {pose && <span className="cam-chip cam-chip--pose">{poseLabel} · {Math.round(confidence * 100)}%</span>}
+      {poseLabel && <span className="cam-chip cam-chip--pose">{poseLabel} · {Math.round(confidence * 100)}%</span>}
       {children}
     </div>
   );

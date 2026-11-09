@@ -8,7 +8,7 @@ const OPTIONS = [
 ];
 
 export default function Camera() {
-  const { camera, setCamera, showToast } = useStore();
+  const { camera, setCamera, showToast, source } = useStore();
 
   return (
     <div className="screen">
@@ -21,7 +21,9 @@ export default function Camera() {
       <section className="card stack-12" aria-labelledby="zone-h">
         <div className="stack-0">
           <h2 id="zone-h">Living room</h2>
-          <span className="muted small">4MP · night vision</span>
+          <span className="muted small">
+            {source === "api" && !camera.online ? "No camera connected · the server simulates a dog" : "4MP · night vision"}
+          </span>
         </div>
         <div className="zone-preview" role="img" aria-label="Camera preview with the training zone marked">
           <div className="cam-floor" />

@@ -3,7 +3,9 @@ import { BackLink, Progress, Segmented, StatusPill } from "../components/ui.jsx"
 import { useStore } from "../store.jsx";
 
 export default function Feeder() {
-  const { feeder, setFeeder, showToast } = useStore();
+  const { feeder, setFeeder, showToast, testTreat, source, health } = useStore();
+  const hardware = source !== "api" ? "Open source · ESP32 · firmware 1.2.0"
+    : health?.feeder === "SerialFeeder" ? "Open source · ESP32 on USB" : "Simulated feeder (no ESP32 connected)";
   const hopper = Math.round(feeder.hopper);
 
   return (
@@ -32,7 +34,8 @@ export default function Feeder() {
         <Segmented label="Portion size" value={feeder.portion}
           onChange={(portion) => setFeeder((f) => ({ ...f, portion }))}
           options={[["small", "Small"], ["medium", "Medium"], ["large", "Large"]]} />
-        <button type="button" className="btn btn--peach" onClick={() => showToast("Test treat dispensed")}>
+        <button type="button" className="btn btn--peach"
+          onClick={async () => showToast((await testTreat()) ? "Test treat dispensed" : "The feeder didn't respond")}>
           Dispense a test treat
         </button>
       </section>
@@ -40,7 +43,7 @@ export default function Feeder() {
       <button type="button" className="card nav-row" onClick={() => showToast("Technical details aren't in the mockup yet")}>
         <span className="stack-0 left">
           <strong>Technical details</strong>
-          <span className="muted small">Open source · ESP32 · firmware 1.2.0</span>
+          <span className="muted small">{hardware}</span>
         </span>
         <Icon name="chevronRight" size={18} className="muted" />
       </button>

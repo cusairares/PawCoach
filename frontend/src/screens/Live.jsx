@@ -2,14 +2,49 @@ import { useState } from "react";
 import CameraView from "../components/CameraView.jsx";
 import Icon from "../components/Icon.jsx";
 import { Avatar } from "../components/ui.jsx";
+import { api } from "../api.js";
+import { useApiLiveSession } from "../hooks/useApiLiveSession.js";
 import { CUES, playClick, useLiveSession } from "../hooks/useLiveSession.js";
 import { useStore } from "../store.jsx";
 
+// Live has two engines with the same view:
+//   ApiLive   the backend runs the session (camera or simulated dog on the server)
+//   MockLive  no server: the session is simulated in the browser
 export default function Live() {
+  const { source, dogs } = useStore();
+  if (!dogs.length) return <div className="screen"><h1>Live</h1><p className="muted">Add a dog first.</p></div>;
+  return source === "api" ? <ApiLive /> : <MockLive />;
+}
+
+function ApiLive() {
+  const { dogs, refresh, showToast } = useStore();
+  const [dogIndex, setDogIndex] = useState(0);
+  const dog = dogs[dogIndex % dogs.length];
+  const session = useApiLiveSession({ dog, onChange: () => refresh().catch(() => {}) });
+
+  const onCue = async (id) => {
+    const r = await session.giveCue(id);
+    if (!r.ok) showToast(r.reason === "busy" ? "Wait for the current cue to finish" : r.reason);
+  };
+
+  return (
+    <LiveView
+      dog={dog}
+      session={session}
+      treats={`${session.treatsToday} / ${session.treatLimit}`}
+      streamSrc={session.mode === "camera" ? api.videoUrl() : null}
+      offline={!session.online}
+      onSwitchDog={() => setDogIndex((i) => (i + 1) % dogs.length)}
+      onCue={onCue}
+      onTreat={session.giveTreat}
+    />
+  );
+}
+
+function MockLive() {
   const { dogs, giveTreat, addSuccess, showToast } = useStore();
   const [dogIndex, setDogIndex] = useState(0);
-  const [talking, setTalking] = useState(false);
-  const dog = dogs[dogIndex];
+  const dog = dogs[dogIndex % dogs.length];
 
   const session = useLiveSession({
     onReward: () => {
@@ -17,8 +52,6 @@ export default function Live() {
       return giveTreat(dog.id);
     },
   });
-  const cue = session.activeCue;
-  const progress = cue ? (session.heldS / session.holdS) * 100 : 0;
 
   const onCue = (id) => {
     if (!session.giveCue(id)) showToast("Wait for the current cue to finish");
@@ -27,6 +60,24 @@ export default function Live() {
     const ok = giveTreat(dog.id);
     session.logEvent(ok ? "good" : "bad", ok ? "Treat given" : "Daily treat limit reached");
   };
+
+  return (
+    <LiveView
+      dog={dog}
+      session={session}
+      treats={`${dog.treatsToday} / ${dog.treatLimit}`}
+      onSwitchDog={() => setDogIndex((i) => (i + 1) % dogs.length)}
+      onCue={onCue}
+      onTreat={onTreat}
+    />
+  );
+}
+
+function LiveView({ dog, session, treats, streamSrc = null, offline = false, onSwitchDog, onCue, onTreat }) {
+  const [talking, setTalking] = useState(false);
+  const cue = session.activeCue;
+  const progress = cue && cue.holdS ? (session.heldS / cue.holdS) * 100 : 0;
+
   const onClicker = () => {
     playClick();
     session.logEvent("info", "Click!");
@@ -35,17 +86,17 @@ export default function Live() {
   return (
     <div className="screen screen--live">
       <header className="row-between">
-        <button type="button" className="dog-switch" aria-label="Switch dog"
-          onClick={() => setDogIndex((i) => (i + 1) % dogs.length)}>
+        <button type="button" className="dog-switch" aria-label="Switch dog" onClick={onSwitchDog}>
           <Avatar dog={dog} size={40} />
           <strong>{dog.name}</strong>
           <Icon name="chevronDown" size={16} strokeWidth={2.2} />
         </button>
-        <span className="pill">{dog.treatsToday} / {dog.treatLimit} treats</span>
+        <span className="pill">{treats} treats</span>
       </header>
 
-      <CameraView pose={session.pose} poseLabel={session.poseLabel} confidence={session.confidence}>
-        {talking && <span className="cam-chip cam-chip--talk">Speaking through the speaker…</span>}
+      <CameraView pose={session.pose} poseLabel={session.poseLabel} confidence={session.confidence} streamSrc={streamSrc}>
+        {offline && <span className="cam-chip cam-chip--talk">Reconnecting to the feeder…</span>}
+        {!offline && talking && <span className="cam-chip cam-chip--talk">Speaking through the speaker…</span>}
         <div className="cam-hold">
           <div className="row-between small">
             <span>

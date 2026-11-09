@@ -134,7 +134,9 @@ class AppRuntime:
         self.sessions = scheduler.SessionClock()
 
         if demo and not self.store.dogs():
-            seed_demo(self.store, self.settings)
+            now_wall = wall()
+            seed_demo(self.store, self.settings, now_wall)
+            seed_history(self.store, self.event_log, now_wall)
         dogs = self.store.dogs()
         self.dog_id: Optional[int] = dogs[0].id if dogs else None
 
@@ -146,7 +148,8 @@ class AppRuntime:
         self._session: Optional[Dict] = None         # running automatic training session
         self._command_exercise: Dict[str, str] = {}   # command_id -> exercise_id
         self._schedules_cache = (0.0, [])
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()                 # guards the status snapshot
+        self._engine_lock = threading.RLock()         # one frame step OR one app action at a time
         self._status: Dict = {}
         self._frame = None
         self._recent: List[Dict] = []
@@ -225,6 +228,10 @@ class AppRuntime:
         return frame, probs, det.box
 
     def step(self, now: Optional[float] = None) -> List[Dict]:
+        with self._engine_lock:
+            return self._step(now)
+
+    def _step(self, now: Optional[float]) -> List[Dict]:
         now = self.clock() if now is None else now
         frame, probs, box = self._sense(now)
         self._apply_schedules(now)
@@ -269,7 +276,7 @@ class AppRuntime:
                     break
             if self._session is not None:
                 s = self._session["schedule"]
-                ctx.update(schedule_id=s.id, schedule_max_treats=s.max_treats,
+                ctx.update(schedule_id=s.id, schedule_max_treats=s.max_treats, schedule_scope="all",
                            schedule_since=self._session["since"], passive_enabled=False)
             else:
                 window = scheduler.learning_window(schedules, self.dog_id, dt)
@@ -277,6 +284,7 @@ class AppRuntime:
                     poses = [plan.EXERCISES[e].pose for e in window.exercise_ids
                              if self.store.progress(self.dog_id, e).stage == "learn"]
                     ctx.update(schedule_id=window.id, schedule_max_treats=window.max_treats,
+                               schedule_scope="passive",               # cues from the app don't count
                                schedule_since=scheduler.window_start(window, dt),
                                schedule_min_interval_s=window.min_interval_s,
                                passive_enabled=bool(poses), passive_poses=poses)
@@ -290,7 +298,8 @@ class AppRuntime:
         if dog and self.event_log.treats_since(start_of_day(wall), dog_id=dog.id) >= dog.daily_treat_limit:
             return False, "dog_daily_limit"
         sid = ctx.get("schedule_id")
-        if sid is not None:
+        applies = ctx.get("schedule_scope", "all") == "all" or ctx.get("source") == "passive"
+        if sid is not None and applies:
             if self.event_log.treats_since(ctx["schedule_since"], schedule_id=sid) >= ctx["schedule_max_treats"]:
                 return False, "schedule_limit"
             gap = ctx.get("schedule_min_interval_s")
@@ -327,7 +336,7 @@ class AppRuntime:
                 continue
             ex = plan.EXERCISES[ex_id]
             for pe in plan_events:
-                out.append({**pe, "dog_id": e.dog_id})
+                out.append({**pe, "dog_id": e.dog_id, "ts": e.ts})
                 kind = {"level_up": "level_up", "train": "learned", "mastered": "mastered"}.get(
                     pe.get("stage") or pe["type"])
                 if kind:
@@ -381,11 +390,25 @@ class AppRuntime:
             sess["next_at"] = now + SESSION_PAUSE_S
 
     # ------------------------------------------------------------------ app actions
+    # App actions come from the API threads, so they take the engine lock.
     def select_dog(self, dog_id: int) -> None:
         if self.store.dog(dog_id) is None:
             raise KeyError(f"Dog {dog_id} not found")
-        self.dog_id = dog_id
-        self._apply_schedules(self.clock())
+        with self._engine_lock:
+            self.dog_id = dog_id
+            self._apply_schedules(self.clock())
+
+    def archive_dog(self, dog_id: int) -> None:
+        if self.store.dog(dog_id) is None:
+            raise KeyError(f"Dog {dog_id} not found")
+        with self._engine_lock:
+            self.store.update_dog(dog_id, {"archived": 1})
+            if self.dog_id == dog_id:
+                self.behavior.cancel()
+                self._session = None
+                remaining = self.store.dogs()
+                self.dog_id = remaining[0].id if remaining else None
+                self._apply_schedules(self.clock())
 
     def submit_command(self, exercise: str) -> str:
         """``exercise``: an exercise id (sit, down, stand, stay) or a posture label (sitting, lying...)."""
@@ -395,10 +418,12 @@ class AppRuntime:
         exercise_id = by_pose.get(exercise, exercise)
         if exercise_id not in plan.EXERCISES:
             raise ValueError(f"Unknown exercise '{exercise}'")
-        return self._submit(exercise_id)
+        with self._engine_lock:
+            return self._submit(exercise_id)
 
     def _submit(self, exercise_id: str, schedule_id: Optional[int] = None) -> str:
-        if self.behavior.active is not None:
+        # also busy while a submitted command waits for the next frame to pick it up
+        if self.behavior.active is not None or not self.behavior._commands.empty():
             raise Busy("A command is already running")
         p = self.store.progress(self.dog_id, exercise_id)
         cmd = plan.command_for(exercise_id, hold_s=p.hold_s, dog_id=self.dog_id, schedule_id=schedule_id)
@@ -408,19 +433,27 @@ class AppRuntime:
         return self.behavior.submit(cmd)
 
     def cancel_command(self) -> None:
-        self.behavior.cancel()
-        self._session = None
+        with self._engine_lock:
+            self.behavior.cancel()
+            self._session = None
 
     def manual_treat(self) -> Dict:
-        self._apply_schedules(self.clock())               # make sure limits use the current dog
-        ok, reason = self.behavior.give_treat(self.clock())
+        with self._engine_lock:
+            self._apply_schedules(self.clock())           # make sure limits use the current dog
+            ok, reason = self.behavior.give_treat(self.clock())
         dog = self.store.dog(self.dog_id) if self.dog_id else None
         return {"ok": ok, "reason": None if ok else reason, **self._treat_counts(dog)}
+
+    def test_treat(self) -> bool:
+        """Feeder test from the app: dispenses once, not counted for any dog."""
+        with self._engine_lock:
+            return bool(self.feeder.dispense())
 
     def set_sim_pose(self, pose: str) -> None:
         if self.sim is None:
             raise RuntimeError("Simulation is only available in mock mode")
-        self.sim.set_pose(pose)
+        with self._engine_lock:
+            self.sim.set_pose(pose)
 
     # ------------------------------------------------------------------ read models
     def _treat_counts(self, dog: Optional[Dog]) -> Dict:
@@ -480,11 +513,18 @@ class AppRuntime:
         }
 
     def dog_detail(self, dog: Dog) -> Dict:
-        rts = [d["avg_reaction_s"] for d in self.event_log.daily(7, dog_id=dog.id) if d["avg_reaction_s"]]
+        week = self.event_log.daily(7, dog_id=dog.id)
+        rts = [d["avg_reaction_s"] for d in week if d["avg_reaction_s"]]
+        since = start_of_day(self.wall())
+        caught = [{"ts": e["ts"], "target": e["target"], "treat": bool(e["treat"])}
+                  for e in self.event_log.recent(200, dog_id=dog.id)
+                  if e["kind"] == "passive_capture" and e["ts"] >= since
+                  and not (e["detail"] or "").startswith("silent")]
         return {**self.dog_summary(dog),
                 "avg_reaction_s": round(sum(rts) / len(rts), 2) if rts else None,
                 "exercises": [p.to_dict() for p in self.store.all_progress(dog.id)],
-                "week": self.event_log.daily(7, dog_id=dog.id)}
+                "week": week,
+                "caught_today": caught[:10]}
 
 
 def _mock_box(pose: str):
@@ -502,24 +542,29 @@ def _event_dict(e: Event) -> Dict:
             "schedule_id": e.schedule_id}
 
 
-def seed_demo(store: AppStore, settings: SettingsStore) -> None:
+def seed_demo(store: AppStore, settings: SettingsStore, wall: Optional[float] = None) -> None:
     """Creates the three demo dogs and schedules shown in the app mockup."""
-    settings.update({"daily_treat_limit": 100})            # device-wide cap; per-dog limits apply below
+    now_wall = time.time() if wall is None else wall
+    # device-wide cap (per-dog limits apply below) and a short gap so live demos aren't blocked
+    settings.update({"daily_treat_limit": 100, "min_seconds_between_treats": 3})
     bruno = store.add_dog(Dog("Bruno", "Labrador", "2023-09-14", 31, "#F29E6D", 35))
-    luna = store.add_dog(Dog("Luna", "Border Collie", "2024-06-02", 17, "#A9C9A4", 24))
+    luna = store.add_dog(Dog("Luna", "Border Collie", "2024-06-02", 17, "#A9C9A4", 24, pronoun="she"))
     toby = store.add_dog(Dog("Toby", "Beagle", "2026-03-01", 9, "#B9CFE6", 18))
-    stages = {
-        bruno.id: {"down": ("learn", 18, None), "sit": ("train", 0, 2.5), "stand": ("train", 0, 1.5)},
-        luna.id: {"paw": ("learn", 7, None), "down": ("train", 0, 2.0), "stay": ("train", 0, 7.0),
-                  "sit": ("mastered", 0, 3.0)},
-        toby.id: {"sit": ("learn", 24, None)},
+    days = 86400
+    stages = {   # exercise: (stage, moments caught, hold seconds, successes in the last 10, started days ago)
+        bruno.id: {"down": ("learn", 18, None, 0, 4), "sit": ("train", 0, 2.5, 9, 20),
+                   "stand": ("train", 0, 1.5, 9, 15)},
+        luna.id: {"paw": ("learn", 7, None, 0, 2), "down": ("train", 0, 2.0, 9, 18),
+                  "stay": ("train", 0, 7.0, 8, 10), "sit": ("mastered", 0, 3.0, 10, 40)},
+        toby.id: {"sit": ("learn", 24, None, 0, 6)},
     }
     for dog_id, exs in stages.items():
-        for ex_id, (stage, moments, hold) in exs.items():
+        for ex_id, (stage, moments, hold, wins, ago) in exs.items():
             p = store.progress(dog_id, ex_id)
-            p.stage, p.moments, p.started_at = stage, moments, time.time()
+            p.stage, p.moments, p.started_at = stage, moments, now_wall - ago * days
             if hold:
                 p.hold_s = p.best_hold_s = hold
+                p.recent = [0] * (10 - wins) + [1] * wins
             store.save_progress(p)
     for s in [
         Schedule(bruno.id, "learn", ["down"], start="10:00", end="17:00", max_treats=10),
@@ -529,6 +574,55 @@ def seed_demo(store: AppStore, settings: SettingsStore) -> None:
         Schedule(luna.id, "learn", ["paw"], days=[5, 6], start="12:00", end="16:00", max_treats=8, enabled=False),
     ]:
         store.add_schedule(s)
+
+
+# Demo history: (success rate per day for the last 6 days, streak days, events earlier today)
+DEMO_HISTORY = {
+    "Bruno": ([0.62, 0.68, 0.66, 0.72, 0.76, 0.80], 12, {"sit": 6, "stand": 4, "down": 3}),
+    "Luna": ([0.80, 0.78, 0.85, 0.83, 0.88, 0.91], 21, {"down": 5, "stay": 4, "sit": 2}),
+    "Toby": ([0.40, 0.44, 0.51, 0.49, 0.55, 0.58], 5, {"sit": 3}),
+}
+
+
+def seed_history(store: AppStore, event_log: EventLog, wall: float, seed: int = 7) -> None:
+    """Past training events for the demo dogs, so charts, streaks and "today" aren't empty."""
+    rng = random.Random(seed)
+    today = start_of_day(wall)
+    for dog in store.dogs():
+        if dog.name not in DEMO_HISTORY:
+            continue
+        rates, streak, today_counts = DEMO_HISTORY[dog.name]
+        trained = [p for p in store.all_progress(dog.id) if p.stage in ("train", "mastered")]
+        for days_ago in range(streak - 1, 0, -1):
+            day = today - days_ago * 86400 + 9 * 3600                  # from 09:00
+            rate = rates[-days_ago] if days_ago <= len(rates) else rates[0] - 0.05
+            for i in range(10 if days_ago <= len(rates) else 4):
+                p = trained[i % len(trained)] if trained else None
+                ok = rng.random() < rate
+                event_log.add(Event("command_success" if ok else "command_fail", ts=day + i * 900,
+                                    target=p.exercise.pose if p else "sitting", detected=None,
+                                    reaction_s=round(rng.uniform(0.6, 1.6), 2) if ok else None,
+                                    treat=ok, detail=None if ok else "timeout", dog_id=dog.id))
+        # earlier today: commands for trained exercises, captures for the ones being learned
+        end = max(today, wall - 60)
+        t = min(today + 8 * 3600, max(today, end - 3600))
+        span = max(0.0, end - t)
+        n = sum(today_counts.values())
+        k = 0
+        for ex_id, count in today_counts.items():
+            p = store.progress(dog.id, ex_id)
+            for _ in range(count):
+                ts = t + span * k / max(1, n)
+                k += 1
+                if p.stage == "learn":
+                    event_log.add(Event("passive_capture", ts=ts, target=p.exercise.pose,
+                                        detected=p.exercise.pose, treat=True, dog_id=dog.id))
+                else:
+                    ok = k % 5 != 0                                    # about 80% today
+                    event_log.add(Event("command_success" if ok else "command_fail", ts=ts,
+                                        target=p.exercise.pose, treat=ok,
+                                        reaction_s=round(rng.uniform(0.5, 1.3), 2) if ok else None,
+                                        detail=None if ok else "timeout", dog_id=dog.id))
 
 
 if __name__ == "__main__":

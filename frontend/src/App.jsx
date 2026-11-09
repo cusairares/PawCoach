@@ -36,17 +36,33 @@ function resolve(path) {
 
 export default function App() {
   const path = useRoute();
-  const { toast } = useStore();
+  const { toast, error, clearError, source } = useStore();
   const { Component, tab, params } = resolve(path);
 
   return (
     <div className="app-shell">
       <div className="phone">
         <main className="screen-area">
-          <Component {...params} />
+          {source === "loading" ? (
+            <div className="splash" role="status">
+              <span className="splash-dot" />
+              <span className="muted">Connecting to your feeder…</span>
+            </div>
+          ) : <Component {...params} />}
         </main>
         <BottomNav active={tab} />
         {toast && <div className="toast" role="status">{toast}</div>}
+        {error && (
+          <div className="error-overlay" role="alertdialog" aria-modal="true" aria-labelledby="err-title">
+            <div className="card error-dialog stack-12 center">
+              <h2 id="err-title">Invalid setting</h2>
+              <p className="lead">{error}</p>
+              <button type="button" className="btn btn--honey btn--block" onClick={clearError}>
+                OK
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

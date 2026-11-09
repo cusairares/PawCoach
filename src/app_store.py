@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS dogs (
     birth_date TEXT,                 -- YYYY-MM-DD
     weight_kg REAL,
     color TEXT,                      -- avatar color in the app
+    pronoun TEXT NOT NULL DEFAULT 'he',  -- he | she, for the app's texts
     daily_treat_limit INTEGER NOT NULL DEFAULT 20,
     archived INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
@@ -62,6 +63,7 @@ class Dog:
     weight_kg: Optional[float] = None
     color: Optional[str] = None
     daily_treat_limit: int = 20
+    pronoun: str = "he"                        # he | she
     id: Optional[int] = None
     archived: bool = False
     created_at: float = field(default_factory=time.time)
@@ -128,16 +130,24 @@ class AppStore:
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._lock = threading.RLock()
+
+    def _migrate(self) -> None:
+        """Adds columns that older app.db files don't have yet."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(dogs)")}
+        if "pronoun" not in cols:
+            self._conn.execute("ALTER TABLE dogs ADD COLUMN pronoun TEXT NOT NULL DEFAULT 'he'")
+            self._conn.commit()
 
     # ------------------------------------------------------------------ dogs
     def add_dog(self, dog: Dog) -> Dog:
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "INSERT INTO dogs (name, breed, birth_date, weight_kg, color, daily_treat_limit, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO dogs (name, breed, birth_date, weight_kg, color, daily_treat_limit, pronoun,"
+                " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (dog.name, dog.breed, dog.birth_date, dog.weight_kg, dog.color, dog.daily_treat_limit,
-                 dog.created_at))
+                 dog.pronoun, dog.created_at))
         dog.id = cur.lastrowid
         for ex_id in EXERCISES:
             self.save_progress(new_progress(dog.id, ex_id))
@@ -154,7 +164,8 @@ class AppStore:
         return Dog(**{**dict(r), "archived": bool(r["archived"])}) if r else None
 
     def update_dog(self, dog_id: int, values: Dict) -> Dog:
-        allowed = {"name", "breed", "birth_date", "weight_kg", "color", "daily_treat_limit", "archived"}
+        allowed = {"name", "breed", "birth_date", "weight_kg", "color", "daily_treat_limit", "pronoun",
+                   "archived"}
         unknown = set(values) - allowed
         if unknown:
             raise KeyError(f"Unknown dog fields: {sorted(unknown)}")
