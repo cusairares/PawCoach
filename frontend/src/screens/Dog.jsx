@@ -21,11 +21,11 @@ export default function Dog({ dogId }) {
         <Avatar dog={dog} size={96} />
         <div className="stack-2 center">
           <h1>{dog.name}</h1>
-          <span className="muted">{dog.breed} · {dog.age} · {dog.weight}</span>
+          <span className="muted">{[dog.breed, dog.age, dog.weight].filter(Boolean).join(" · ")}</span>
         </div>
         <div className="chips chips--center">
-          <span className="pill pill--honey">Good Boy Score {dog.score}</span>
-          <span className="pill">#{dog.rank} in {dog.city}</span>
+          {dog.score != null && <span className="pill pill--honey">Good Boy Score {dog.score}</span>}
+          {dog.rank != null && <span className="pill">#{dog.rank} in {dog.city}</span>}
           <span className="pill">{dog.streak}-day streak</span>
         </div>
       </header>

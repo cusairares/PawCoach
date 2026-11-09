@@ -36,14 +36,19 @@ function resolve(path) {
 
 export default function App() {
   const path = useRoute();
-  const { toast } = useStore();
+  const { toast, source } = useStore();
   const { Component, tab, params } = resolve(path);
 
   return (
     <div className="app-shell">
       <div className="phone">
         <main className="screen-area">
-          <Component {...params} />
+          {source === "loading" ? (
+            <div className="splash" role="status">
+              <span className="splash-dot" />
+              <span className="muted">Connecting to your feeder…</span>
+            </div>
+          ) : <Component {...params} />}
         </main>
         <BottomNav active={tab} />
         {toast && <div className="toast" role="status">{toast}</div>}

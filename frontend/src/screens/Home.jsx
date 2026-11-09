@@ -1,7 +1,6 @@
 import { useState } from "react";
 import Icon from "../components/Icon.jsx";
 import { Avatar } from "../components/ui.jsx";
-import { WEEK_ALL, WEEK_DAYS } from "../data/mock.js";
 import { Link } from "../router.jsx";
 import { useStore } from "../store.jsx";
 
@@ -10,10 +9,12 @@ function today() {
 }
 
 export default function Home() {
-  const { dogs, showToast } = useStore();
+  const { dogs, week: weekAll, showToast } = useStore();
   const [filter, setFilter] = useState("all");
-  const week = filter === "all" ? WEEK_ALL : dogs.find((d) => d.id === filter).week;
-  const avg = Math.round(week[week.length - 1]);
+  const selected = dogs.find((d) => d.id === filter);
+  const week = selected ? selected.week : weekAll.values;
+  const labels = (selected?.weekLabels) ?? weekAll.labels;
+  const avg = Math.round(week[week.length - 1] ?? 0);
 
   return (
     <div className="screen">
@@ -58,7 +59,7 @@ export default function Home() {
             <div key={i} className="bar-col">
               <span className="bar-value">{v}%</span>
               <div className={`bar ${i === week.length - 1 ? "is-today" : ""}`} style={{ height: `${v * 1.2}px` }} />
-              <span className={`bar-label ${i === week.length - 1 ? "is-today" : ""}`}>{WEEK_DAYS[i]}</span>
+              <span className={`bar-label ${i === week.length - 1 ? "is-today" : ""}`}>{labels[i]}</span>
             </div>
           ))}
         </div>

@@ -3,7 +3,10 @@ import { Link } from "../router.jsx";
 import { useStore } from "../store.jsx";
 
 export default function Settings() {
-  const { feeder, camera, schedules, showToast } = useStore();
+  const { dogs, feeder, camera, schedules, showToast, source, health } = useStore();
+  const connection = source === "api"
+    ? `connected to the feeder${health?.mode === "mock" ? " (simulated dog)" : ""}`
+    : "offline demo · start the server to connect";
   const activeSchedules = schedules.filter((s) => s.on).length;
 
   const rows = [
@@ -25,7 +28,7 @@ export default function Settings() {
         <span className="avatar" style={{ width: 48, height: 48, background: "#FCEBD2", fontSize: 18 }}>R</span>
         <span className="grow stack-0 left">
           <strong>Your account</strong>
-          <span className="muted">Family · 3 dogs · 2 members</span>
+          <span className="muted">Family · {dogs.length} {dogs.length === 1 ? "dog" : "dogs"} · 2 members</span>
         </span>
         <Icon name="chevronRight" size={20} className="muted" />
       </button>
@@ -50,7 +53,7 @@ export default function Settings() {
           );
         })}
       </div>
-      <p className="muted tiny center">PawCoach 0.1 · prototype</p>
+      <p className="muted tiny center">PawCoach 0.1 · {connection}</p>
     </div>
   );
 }
