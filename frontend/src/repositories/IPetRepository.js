@@ -68,12 +68,28 @@ export class IPetRepository {
   }
 
   /**
-   * @param {number} scheduleId
+   * @param {Object} data
+   * @returns {Promise<Object>}
+   */
+  async createSchedule(data) {
+    throw new Error("createSchedule() not implemented");
+  }
+
+  /**
+   * @param {number|string} scheduleId
    * @param {Object} patch
    * @returns {Promise<Object>}
    */
   async updateSchedule(scheduleId, patch) {
     throw new Error("updateSchedule() not implemented");
+  }
+
+  /**
+   * @param {number|string} scheduleId
+   * @returns {Promise<boolean>}
+   */
+  async deleteSchedule(scheduleId) {
+    throw new Error("deleteSchedule() not implemented");
   }
 
   /**

@@ -1,24 +1,34 @@
-// Live camera view. With a real camera (backend in camera mode) it shows the server's video
-// stream (`streamSrc`, MJPEG). Otherwise it shows a dog photo matching the detected pose.
-// No box or pose label on top: just the dog.
+import React from "react";
 
-const POSE_IMAGES = {
-  sitting: "/dogs/pose_sitting.jpg",
-  standing: "/dogs/pose_standing.jpg",
-  lying: "/dogs/pose_lying.jpg",
-};
+// Live camera view.
+// In camera mode or with streamSrc, it streams the MJPEG feed.
+// In mock or standalone mode, it plays the annotated demo video loop with the skeleton + posture HUD.
 
-export default function CameraView({ pose, poseLabel, streamSrc = null, children }) {
-  const imgSrc = (pose && POSE_IMAGES[pose]) || "/dogs/living_room_dog.jpg";
-
+export default function CameraView({
+  pose,
+  poseLabel,
+  streamSrc = null,
+  videoSrc = "/moments/video_demo_annotated.mp4",
+  children,
+}) {
   return (
     <div className="cam" role="img" aria-label={`Live camera: dog is ${poseLabel?.toLowerCase() ?? "not in view"}`}>
       {streamSrc ? (
-        <img className="cam-stream" src={streamSrc} alt="" />
+        <img className="cam-stream" src={streamSrc} alt="Live stream" />
+      ) : videoSrc ? (
+        <video
+          className="cam-stream"
+          src={videoSrc}
+          autoPlay
+          loop
+          muted
+          playsInline
+          style={{ objectFit: "cover", width: "100%", height: "100%" }}
+        />
       ) : (
         <>
           <img
-            src={imgSrc}
+            src={(pose && `/dogs/pose_${pose}.jpg`) || "/dogs/living_room_dog.jpg"}
             alt={pose ? `Dog ${pose}` : "Camera view"}
             className="cam-img-feed"
             onError={(e) => { e.currentTarget.src = "/dogs/living_room_dog.jpg"; }}

@@ -58,7 +58,9 @@ export const api = {
   setStage: (dogId, exerciseId, stage) => request("PATCH", `/dogs/${dogId}/exercises/${exerciseId}`, { stage }),
 
   schedules: () => request("GET", "/schedules"),
+  addSchedule: (body) => request("POST", "/schedules", body),
   updateSchedule: (id, patch) => request("PATCH", `/schedules/${id}`, patch),
+  deleteSchedule: (id) => request("DELETE", `/schedules/${id}`),
 
   daily: (days = 7) => request("GET", `/stats/daily?days=${days}`),
 

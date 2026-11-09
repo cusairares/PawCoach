@@ -171,28 +171,52 @@ export default function Home() {
           <span className="eyebrow-muted">{today()}</span>
           <h1>My dogs</h1>
         </div>
+        {/* CONDITIONAL RENDERING / DEMO LOCK: Add pet is disabled for hackathon demo */}
         <button
           type="button"
-          className="icon-btn"
-          aria-label="Add a dog"
-          onClick={() => setShowAddModal(true)}
+          className="icon-btn is-disabled"
+          aria-label="Add a dog (Disabled for hackathon demo)"
+          disabled
+          style={{ opacity: 0.5, cursor: "not-allowed" }}
         >
           <Icon name="plus" size={20} strokeWidth={2.2} />
         </button>
       </header>
 
       <section className="stack-12" aria-label="My dogs">
-        {dogs.map((d) => (
-          <Link key={d.id} to={`/dogs/${d.id}`} className="card dog-row">
-            <Avatar dog={d} size={56} />
-            <span className="dog-row-text">
-              <strong>{d.name}</strong>
-              <span className="muted">{d.breed} · {d.age}</span>
-              <span className="good small">{d.successesToday} successes today · {d.treatsToday} treats</span>
-            </span>
-            <Icon name="chevronRight" size={20} className="muted" />
-          </Link>
-        ))}
+        {dogs.map((d, index) => {
+          /* CONDITIONAL RENDERING: Only first dog (index === 0) is interactive; other dogs marked 'To be continued' and non-interactable */
+          if (index === 0) {
+            return (
+              <Link key={d.id} to={`/dogs/${d.id}`} className="card dog-row">
+                <Avatar dog={d} size={56} />
+                <span className="dog-row-text">
+                  <strong>{d.name}</strong>
+                  <span className="muted">{d.breed} · {d.age}</span>
+                  <span className="good small">{d.successesToday} successes today · {d.treatsToday} treats</span>
+                </span>
+                <Icon name="chevronRight" size={20} className="muted" />
+              </Link>
+            );
+          }
+
+          /* CONDITIONAL RENDERING: Other dogs than the first are marked 'To be continued' and non-interactable */
+          return (
+            <div key={d.id} className="card dog-row is-disabled" aria-disabled="true" style={{ opacity: 0.65, cursor: "not-allowed" }}>
+              <Avatar dog={d} size={56} />
+              <span className="dog-row-text">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <strong>{d.name}</strong>
+                  <span className="pill pill--tbc" style={{ fontSize: 11, padding: "2px 8px", background: "var(--soft)", color: "var(--muted)", fontWeight: 800 }}>
+                    To be continued
+                  </span>
+                </div>
+                <span className="muted">{d.breed} · {d.age}</span>
+                <span className="muted small">Demo preview · {d.treatsToday} treats</span>
+              </span>
+            </div>
+          );
+        })}
       </section>
 
       <section className="card stack-14" aria-labelledby="week-h">
@@ -201,11 +225,25 @@ export default function Home() {
           <span className="good strong">{avg}% success</span>
         </div>
         <div className="chips" role="group" aria-label="Filter by dog">
-          {[["all", "All"], ...dogs.map((d) => [d.id, d.name])].map(([id, label]) => (
-            <button key={id} type="button" className="chip-btn" aria-pressed={filter === id} onClick={() => setFilter(id)}>
-              {label}
-            </button>
-          ))}
+          {/* CONDITIONAL RENDERING: Only 'all' and the first dog are interactive in the filter */}
+          {[["all", "All"], ...dogs.map((d) => [d.id, d.name])].map(([id, label], idx) => {
+            const isClickable = idx === 0 || idx === 1; // "all" or first dog
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`chip-btn ${!isClickable ? "is-disabled" : ""}`}
+                aria-pressed={filter === id}
+                disabled={!isClickable}
+                style={!isClickable ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
+                onClick={() => {
+                  if (isClickable) setFilter(id);
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
         <div className="bars" role="img" aria-label={`Success rate this week, ending at ${avg}% today`}>
           {week.map((v, i) => (

@@ -20,15 +20,18 @@ function MomentCard({ moment, onLike }) {
         entries.forEach((entry) => {
           const video = videoRef.current;
           if (!video) return;
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-            video.play().then(() => setIsPlaying(true)).catch(() => {});
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            video.muted = true;
+            video.play()
+              .then(() => setIsPlaying(true))
+              .catch(() => setIsPlaying(false));
           } else {
             video.pause();
             setIsPlaying(false);
           }
         });
       },
-      { threshold: [0.2, 0.6, 0.9] }
+      { threshold: [0.1, 0.5, 0.8] }
     );
 
     observer.observe(el);
@@ -39,7 +42,10 @@ function MomentCard({ moment, onLike }) {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play().then(() => setIsPlaying(true)).catch(() => {});
+      video.muted = true;
+      video.play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => console.warn("Video play blocked:", err));
     } else {
       video.pause();
       setIsPlaying(false);
@@ -71,7 +77,11 @@ function MomentCard({ moment, onLike }) {
         className="moment-video"
         loop
         muted
+        autoPlay
         playsInline
+        preload="auto"
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
       />
 
       <div className="moment-scrim" />

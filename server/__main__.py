@@ -19,7 +19,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m server", description="PawCoach API server")
     ap.add_argument("--mode", choices=["mock", "camera"], default="mock",
                     help="mock = simulated dog (default), camera = real camera + models")
-    ap.add_argument("--camera", default="0", help="camera index, video file or rtsp:// URL (camera mode)")
+    default_cam = "video demo/video demo.mp4" if Path("video demo/video demo.mp4").exists() else "0"
+    ap.add_argument("--camera", default=default_cam, help="camera index, video file or rtsp:// URL (camera mode)")
     ap.add_argument("--feeder", default=None, help="serial port of the ESP32 feeder, e.g. COM3 (default: none)")
     ap.add_argument("--host", default="0.0.0.0", help="0.0.0.0 = reachable from phones on the same Wi-Fi")
     ap.add_argument("--port", type=int, default=8000)

@@ -178,8 +178,10 @@ class AppRuntime:
         from .posture import PostureClassifier
         src = int(self._camera_source) if self._camera_source.isdigit() else self._camera_source
         self._camera = cv2.VideoCapture(src)
+        self._is_video_file = isinstance(src, str) and not src.startswith(("rtsp://", "http://", "https://"))
         kwargs = {"imgsz": self.config.pose_imgsz} if hasattr(self.config, "pose_imgsz") else {}
-        self._detector = DogDetector(score_threshold=self.config.detector_score_threshold, **kwargs)
+        score_thresh = 0.25 if self._is_video_file else self.config.detector_score_threshold
+        self._detector = DogDetector(score_threshold=score_thresh, **kwargs)
         self._classifier = PostureClassifier()
 
     # ------------------------------------------------------------------ loop
@@ -215,17 +217,28 @@ class AppRuntime:
             return None, self.sim.probs(), _mock_box(self.sim.pose)
         self._ensure_camera()
         ok, frame = self._camera.read()
+        if not ok and getattr(self, "_is_video_file", False):
+            import cv2
+            self._camera.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, frame = self._camera.read()
         if not ok:
             return None, None, None
+        h, w = frame.shape[:2]
+        if w > h and np.mean(frame[:, :w // 4]) < 15 and np.mean(frame[:, 3 * w // 4:]) < 15:
+            crop_w = int(h * 9 / 16)
+            x0 = (w - crop_w) // 2
+            frame = frame[int(h * 0.15):int(h * 0.88), x0:x0 + crop_w]
         det = self._detector.detect(frame, previous=self._prev_box)
         if det is None:
             return frame, None, None
         self._prev_box = det.box
         if hasattr(self._classifier, "predict_detection"):          # keypoint posture model
+            min_kpts = 4 if getattr(self, "_is_video_file", False) else getattr(self.config, "min_visible_keypoints", 5)
+            min_conf = 0.35 if getattr(self, "_is_video_file", False) else self.config.posture_min_confidence
             probs = self._classifier.predict_detection(
                 det, frame_width=float(frame.shape[1]),
-                min_visible_kpts=getattr(self.config, "min_visible_keypoints", 5),
-                min_confidence=self.config.posture_min_confidence)
+                min_visible_kpts=min_kpts,
+                min_confidence=min_conf)
         else:                                                        # crop classifier
             from .detector import square_crop
             probs = self._classifier.predict(square_crop(frame, det.box, padding=self.config.box_padding))
@@ -285,8 +298,10 @@ class AppRuntime:
             else:
                 window = scheduler.learning_window(schedules, self.dog_id, dt)
                 if window is not None:
-                    poses = [plan.EXERCISES[e].pose for e in window.exercise_ids
-                             if self.store.progress(self.dog_id, e).stage == "learn"]
+                    poses = list(dict.fromkeys(
+                        plan.EXERCISES[e].pose for e in window.exercise_ids
+                        if e in plan.EXERCISES and plan.EXERCISES[e].detectable
+                    ))
                     ctx.update(schedule_id=window.id, schedule_max_treats=window.max_treats,
                                schedule_scope="passive",               # cues from the app don't count
                                schedule_since=scheduler.window_start(window, dt),
@@ -324,6 +339,11 @@ class AppRuntime:
             if e.kind == "passive_capture" and not (e.detail or "").startswith("silent"):
                 ex_id = next((p.exercise_id for p in self.store.all_progress(e.dog_id)
                               if p.stage == "learn" and p.exercise.pose == e.target), None)
+                if ex_id is None and e.schedule_id is not None:
+                    sched = self.store.schedule(e.schedule_id)
+                    if sched:
+                        ex_id = next((eid for eid in sched.exercise_ids
+                                      if eid in plan.EXERCISES and plan.EXERCISES[eid].pose == e.target), None)
                 if ex_id:
                     p = self.store.progress(e.dog_id, ex_id)
                     plan_events = plan.on_capture(p)
@@ -364,8 +384,7 @@ class AppRuntime:
     # ------------------------------------------------------------------ sessions
     def _start_session(self, s: Schedule, slot: str) -> None:
         exercises = [e for e in s.exercise_ids
-                     if plan.EXERCISES[e].detectable
-                     and self.store.progress(s.dog_id, e).stage in ("train", "mastered")]
+                     if e in plan.EXERCISES and plan.EXERCISES[e].detectable]
         if not exercises:
             log.info("[session] %s %s skipped: nothing in the training stage", s.id, slot)
             return

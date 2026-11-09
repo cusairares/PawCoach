@@ -156,6 +156,37 @@ export function StoreProvider({ children, repository = petRepository }) {
     }
   }, [updateDogLocal, repository, sync]);
 
+  const addSchedule = useCallback(async (data) => {
+    if (source === "api") {
+      try {
+        const payload = {
+          dog_id: Number(data.dog_id || data.dog),
+          kind: data.kind || data.type || "learn",
+          exercise_ids: data.exercise_ids || ["sit"],
+          days: data.days || [0, 1, 2, 3, 4, 5, 6],
+          start: data.start || (data.kind === "learn" ? "10:00" : null),
+          end: data.end || (data.kind === "learn" ? "17:00" : null),
+          times: data.times || (data.kind === "train" ? ["10:00"] : []),
+          reps: Number(data.reps || 10),
+          max_treats: Number(data.max_treats || data.max || 10),
+          min_interval_s: Number(data.min_interval_s || (data.intervalMin ? data.intervalMin * 60 : 1800)),
+          enabled: true,
+        };
+        await api.addSchedule(payload);
+        await refresh();
+        showToast("Schedule created successfully!");
+        return true;
+      } catch (err) {
+        showError(err.message || "Couldn't create schedule");
+        return false;
+      }
+    }
+    const created = await repository.createSchedule(data);
+    setSchedules((prev) => [...prev, created]);
+    showToast("Schedule created successfully!");
+    return true;
+  }, [source, refresh, repository, showToast, showError]);
+
   const updateSchedule = useCallback((id, patch) => {
     setSchedules((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     repository.updateSchedule(id, patch).catch(() => {});
@@ -164,6 +195,15 @@ export function StoreProvider({ children, repository = petRepository }) {
     if ("max" in patch) body.max_treats = patch.max;
     sync(() => api.updateSchedule(id, body));
   }, [repository, sync]);
+
+  const deleteSchedule = useCallback(async (id) => {
+    setSchedules((ss) => ss.filter((s) => s.id !== id));
+    repository.deleteSchedule(id).catch(() => {});
+    if (source === "api") {
+      sync(() => api.deleteSchedule(id));
+    }
+    showToast("Schedule removed");
+  }, [repository, source, sync, showToast]);
 
   /** "Dispense a test treat" in Settings > Feeder. */
   const testTreat = useCallback(async () => {
@@ -209,13 +249,13 @@ export function StoreProvider({ children, repository = petRepository }) {
     moments: feedMoments, apStatus,
     getDog: (id) => dogs.find((d) => d.id === String(id)),
     addDog, showToast, showError, clearError, refresh, giveTreat, addSuccess,
-    setExerciseStage, updateSchedule, testTreat,
+    setExerciseStage, addSchedule, updateSchedule, deleteSchedule, testTreat,
     setFeeder, setCamera,
     toggleLikeMoment, loadMoreRandomMoments,
   }), [
     repository, source, health, dogs, schedules, week, feeder, camera, toast, error,
     feedMoments, apStatus, addDog, showToast, showError, clearError, refresh,
-    giveTreat, addSuccess, setExerciseStage, updateSchedule, testTreat,
+    giveTreat, addSuccess, setExerciseStage, addSchedule, updateSchedule, deleteSchedule, testTreat,
     toggleLikeMoment, loadMoreRandomMoments,
   ]);
 

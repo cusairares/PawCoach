@@ -63,11 +63,11 @@ export const SEED_CACHE = {
     },
   ],
   schedules: [
-    { id: 1, dog: "bruno", type: "learn", title: "Bruno · Down", when: "Daily, 10:00–17:00", sessions: 1, max: 10, on: true },
-    { id: 2, dog: "toby", type: "learn", title: "Toby · Sit", when: "Mon–Fri, 09:00–18:00", sessions: 1, max: 12, on: true },
-    { id: 3, dog: "bruno", type: "train", title: "Bruno · Sit and Stand", when: "Daily, 08:00 and 18:30", sessions: 2, max: 10, on: true },
-    { id: 4, dog: "luna", type: "train", title: "Luna · Down and Stay", when: "Daily, 18:30", sessions: 1, max: 10, on: true },
-    { id: 5, dog: "luna", type: "learn", title: "Luna · Paw", when: "Weekends, 12:00–16:00", sessions: 1, max: 8, on: false },
+    { id: 1, dog: "bruno", type: "learn", title: "Bruno · Down", when: "Daily, 10:00–17:00", sessions: 1, max: 10, reps: 10, intervalMin: 30, on: true },
+    { id: 2, dog: "toby", type: "learn", title: "Toby · Sit", when: "Mon–Fri, 09:00–18:00", sessions: 1, max: 12, reps: 10, intervalMin: 30, on: true },
+    { id: 3, dog: "bruno", type: "train", title: "Bruno · Sit and Stand", when: "Daily, 08:00 and 18:30", sessions: 2, max: 10, reps: 10, intervalMin: 30, on: true },
+    { id: 4, dog: "luna", type: "train", title: "Luna · Down and Stay", when: "Daily, 18:30", sessions: 1, max: 10, reps: 10, intervalMin: 30, on: true },
+    { id: 5, dog: "luna", type: "learn", title: "Luna · Paw", when: "Weekends, 12:00–16:00", sessions: 1, max: 8, reps: 10, intervalMin: 30, on: false },
   ],
   moments: [
     { id: 1, dogName: "Bruno", dogBreed: "Labrador", dogImage: "/dogs/bruno.jpg", caption: "Mastering the ultimate slow sit roll 🎾", videoUrl: "/moments/dog1.mp4", likesCount: 142, liked: false },
@@ -242,11 +242,37 @@ export class HttpRepository extends IPetRepository {
     return dogId ? schedules.filter((s) => s.dog === dogId) : schedules;
   }
 
+  async createSchedule(data) {
+    const schedules = readStorage(CACHE_KEYS.SCHEDULES, SEED_CACHE.schedules);
+    const newSchedule = {
+      id: Date.now(),
+      dog: String(data.dog_id || data.dog),
+      type: data.kind || data.type || "learn",
+      title: data.title || "New Schedule",
+      when: data.when || "Daily, 10:00–17:00",
+      sessions: data.sessions || (data.times ? data.times.length : 1),
+      max: data.max_treats || data.max || 10,
+      reps: data.reps || 10,
+      intervalMin: data.intervalMin || Math.round((data.min_interval_s || 1800) / 60),
+      on: true,
+    };
+    const updated = [...schedules, newSchedule];
+    writeStorage(CACHE_KEYS.SCHEDULES, updated);
+    return newSchedule;
+  }
+
   async updateSchedule(scheduleId, patch) {
     const schedules = readStorage(CACHE_KEYS.SCHEDULES, SEED_CACHE.schedules);
     const updated = schedules.map((s) => (s.id === scheduleId ? { ...s, ...patch } : s));
     writeStorage(CACHE_KEYS.SCHEDULES, updated);
     return updated.find((s) => s.id === scheduleId) || null;
+  }
+
+  async deleteSchedule(scheduleId) {
+    const schedules = readStorage(CACHE_KEYS.SCHEDULES, SEED_CACHE.schedules);
+    const updated = schedules.filter((s) => s.id !== scheduleId);
+    writeStorage(CACHE_KEYS.SCHEDULES, updated);
+    return true;
   }
 
   // ------------------------------------------------------------------ moments & likes
