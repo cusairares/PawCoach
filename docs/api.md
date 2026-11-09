@@ -41,14 +41,14 @@ Toate sunt sub `/api` și primesc/întorc JSON.
 
 | Metodă | Rută | Ce face |
 |---|---|---|
-| GET | `/health` | modul (mock / camera) și tipul de feeder |
-| GET | `/status` | live: poziția, comanda în curs, sesiunea, recompense azi, ultimele evenimente |
+| GET | `/health` | modul (mock / camera), tipul de feeder și `sim_source` (în mock: `classifier` / `synthetic`) |
+| GET | `/status` | live: poziția, comanda în curs, sesiunea, recompense azi, ultimele evenimente; în mock și `sim` (ce face câinele simulat vs. ce citește clasificatorul) |
 | POST | `/commands` `{exercise}` | `sit` · `down` · `stand` · `stay` — 409 dacă rulează deja una |
 | POST | `/commands/cancel` | oprește comanda și sesiunea în curs |
 | POST | `/treat` | recompensă manuală (respectă toate limitele) |
 | POST | `/feeder/test` | recompensă de test, nu se numără la niciun câine |
 | POST | `/sim/pose` `{pose}` | doar în modul mock: forțează poziția câinelui simulat (`auto` = liber) |
-| GET | `/video` | imaginea camerei (MJPEG, pentru `<img src>`) |
+| GET | `/video` | imaginea camerei (MJPEG, pentru `<img src>`); în mock cu clasificator: cadrele demo citite de modele, cu chenarul detectorului și eticheta clasificatorului |
 | GET | `/snapshot.jpg` | un singur cadru |
 | GET | `/exercises` | lista exercițiilor |
 | GET · POST | `/dogs` | câinii (cu statistici, exerciții, momente prinse azi) / câine nou |

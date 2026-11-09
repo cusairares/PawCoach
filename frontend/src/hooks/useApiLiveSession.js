@@ -157,6 +157,7 @@ export function useApiLiveSession({ dog, onChange }) {
   return {
     online,
     mode: status?.mode ?? null,
+    simSource: status?.sim?.source ?? null,          // mock mode: "classifier" (real models) | "synthetic"
     dogId: status?.dog?.id ?? null,
     treatsToday: status?.treats_today ?? dog?.treatsToday ?? 0,
     treatLimit: status?.daily_limit ?? dog?.treatLimit ?? 0,

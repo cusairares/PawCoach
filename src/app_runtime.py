@@ -11,8 +11,16 @@ Around it: the active dog, learning windows and training sessions from schedules
 and treat limits per dog and per schedule (``_treat_guard``).
 
 Modes
-    mock    no camera / torch: a simulated dog produces the posture probabilities, everything
-            after that is the real backend logic. Good for development and demos.
+    mock    no camera: a simulated dog decides what it does (obeys cues after a moment,
+            wanders between poses when idle). What the pipeline sees depends on ``sim_source``:
+              classifier  (server default) the dog's pose picks a hand-labelled stretch of the
+                          demo video and those frames go through the real DogDetector +
+                          PostureClassifier, so success, reaction time and confidence come
+                          from the models (see src/demo_footage.py)
+              synthetic   made-up probabilities (88 % for the simulated pose), no models;
+                          used by the unit tests and as a fallback when the models or the
+                          video can't be loaded
+            Everything after the probabilities is the real backend logic.
     camera  real camera + DogDetector + PostureClassifier.
 
 Try it (mock, prints events):  python -m src.app_runtime
@@ -43,6 +51,7 @@ from .live_view import render_frame
 log = logging.getLogger(__name__)
 
 SIM_CHOICES = ("sitting", "standing", "lying", "none", "auto")
+SIM_SOURCES = ("classifier", "synthetic")
 SESSION_PAUSE_S = 3.0          # pause between reps of an automatic training session
 
 
@@ -65,8 +74,10 @@ class LoggingAudio:
 class MockDog:
     """Simulated dog. Changes pose now and then and obeys commands after a short delay."""
 
-    def __init__(self, rng: Optional[random.Random] = None) -> None:
+    def __init__(self, rng: Optional[random.Random] = None,
+                 obey_delay_s: tuple = (0.8, 2.2)) -> None:
         self.rng = rng or random.Random()
+        self.obey_delay_s = obey_delay_s
         self.pose = "standing"
         self.forced = False
         self._pending: Optional[tuple] = None
@@ -84,7 +95,7 @@ class MockDog:
             return
         if self.pose == target:                      # the backend needs a transition into the pose
             self.pose = "standing" if target != "standing" else "sitting"
-        self._pending = (target, now + self.rng.uniform(0.8, 2.2))
+        self._pending = (target, now + self.rng.uniform(*self.obey_delay_s))
 
     def step(self, now: float) -> None:
         if self.forced:
@@ -111,9 +122,12 @@ class AppRuntime:
     def __init__(self, mode: str = "mock", camera_source: str = "0", data_dir: Path = DATA_DIR,
                  fps: float = 10.0, clock: Callable[[], float] = time.monotonic,
                  wall: Callable[[], float] = time.time, rng: Optional[random.Random] = None,
-                 highlights: bool = True, demo: bool = False) -> None:
+                 highlights: bool = True, demo: bool = False, sim_source: str = "synthetic",
+                 sim_include_hard: bool = False) -> None:
         if mode not in ("mock", "camera"):
             raise ValueError("mode must be 'mock' or 'camera'")
+        if sim_source not in SIM_SOURCES:
+            raise ValueError(f"sim_source must be one of {SIM_SOURCES}")
         self.mode, self.fps, self.clock, self.wall = mode, fps, clock, wall
         data_dir = self.data_dir = Path(data_dir)
 
@@ -140,10 +154,22 @@ class AppRuntime:
         dogs = self.store.dogs()
         self.dog_id: Optional[int] = dogs[0].id if dogs else None
 
-        self.sim = MockDog(rng) if mode == "mock" else None
         self._camera_source = camera_source
         self._camera = self._detector = self._classifier = None
         self._prev_box = None
+        self._is_video_file = False
+        self.sim = self.footage = None
+        self.sim_source: Optional[str] = None
+        self.sim_note: Optional[str] = None
+        if mode == "mock":
+            self.sim_source = sim_source
+            if sim_source == "classifier":
+                self._init_footage(rng, sim_include_hard)
+            # real footage: stay away from the cued pose long enough for the 1 s consensus
+            # window to really leave it, otherwise the "transition into the pose" never happens
+            delay = (1.5, 2.5) if self.footage is not None else (0.8, 2.2)
+            self.sim = MockDog(rng, obey_delay_s=delay)
+        self._sim_pose: Optional[str] = None          # pose the footage is currently showing
 
         self._session: Optional[Dict] = None         # running automatic training session
         self._command_exercise: Dict[str, str] = {}   # command_id -> exercise_id
@@ -170,19 +196,40 @@ class AppRuntime:
             return AudioPlayer(volume=self.settings.current.volume)
         return LoggingAudio()
 
-    def _ensure_camera(self) -> None:
-        if self._camera is not None:
+    def _init_footage(self, rng, include_hard: bool = False) -> None:
+        """Mock mode with real frames + models; falls back to synthetic probabilities."""
+        try:
+            from .demo_footage import DemoFootage
+            self.footage = DemoFootage(rng=rng, include_hard=include_hard)
+            self._is_video_file = True                    # recorded footage: the video thresholds
+            self._load_models()
+            log.info("[mock] simulated dog plays the demo video through the real classifier")
+        except Exception as exc:                          # missing video / onnxruntime / models
+            if self.footage is not None:
+                self.footage.close()
+            self.footage = None
+            self.sim_source = "synthetic"
+            self.sim_note = f"classifier unavailable ({exc.__class__.__name__}: {exc})"
+            log.warning("[mock] %s - using synthetic probabilities", self.sim_note)
+
+    def _load_models(self) -> None:
+        if self._detector is not None:
             return
-        import cv2
         from .detector import DogDetector
         from .posture import PostureClassifier
-        src = int(self._camera_source) if self._camera_source.isdigit() else self._camera_source
-        self._camera = cv2.VideoCapture(src)
-        self._is_video_file = isinstance(src, str) and not src.startswith(("rtsp://", "http://", "https://"))
         kwargs = {"imgsz": self.config.pose_imgsz} if hasattr(self.config, "pose_imgsz") else {}
         score_thresh = 0.25 if self._is_video_file else self.config.detector_score_threshold
         self._detector = DogDetector(score_threshold=score_thresh, **kwargs)
         self._classifier = PostureClassifier()
+
+    def _ensure_camera(self) -> None:
+        if self._camera is not None:
+            return
+        import cv2
+        src = int(self._camera_source) if self._camera_source.isdigit() else self._camera_source
+        self._camera = cv2.VideoCapture(src)
+        self._is_video_file = isinstance(src, str) and not src.startswith(("rtsp://", "http://", "https://"))
+        self._load_models()
 
     # ------------------------------------------------------------------ loop
     def start(self) -> None:
@@ -193,6 +240,8 @@ class AppRuntime:
         self._running = False
         if self._camera is not None:
             self._camera.release()
+        if self.footage is not None:
+            self.footage.close()
         if hasattr(self, 'store'):
             self.store.close()
         if hasattr(self, 'event_log'):
@@ -214,27 +263,36 @@ class AppRuntime:
         """(frame or None, posture probabilities or None, box or None)."""
         if self.mode == "mock":
             self.sim.step(now)
-            return None, self.sim.probs(), _mock_box(self.sim.pose)
+            if self.footage is None:
+                return None, self.sim.probs(), _mock_box(self.sim.pose)
+            if self.sim.pose != self._sim_pose:           # the dog changed what it does
+                self.footage.play(self.sim.pose, now)
+                self._sim_pose = self.sim.pose
+                self._prev_box = None                     # new shot: don't track the old box
+            frame = self.footage.read(now)
+            if frame is None:                             # "none": no dog in view
+                return None, None, None
+            return self._classify(frame)
         self._ensure_camera()
         ok, frame = self._camera.read()
-        if not ok and getattr(self, "_is_video_file", False):
+        if not ok and self._is_video_file:
             import cv2
             self._camera.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ok, frame = self._camera.read()
         if not ok:
             return None, None, None
-        h, w = frame.shape[:2]
-        if w > h and np.mean(frame[:, :w // 4]) < 15 and np.mean(frame[:, 3 * w // 4:]) < 15:
-            crop_w = int(h * 9 / 16)
-            x0 = (w - crop_w) // 2
-            frame = frame[int(h * 0.15):int(h * 0.88), x0:x0 + crop_w]
+        from .demo_footage import crop_portrait
+        return self._classify(crop_portrait(frame))
+
+    def _classify(self, frame):
+        """Real models on one frame: (frame, posture probabilities or None, box or None)."""
         det = self._detector.detect(frame, previous=self._prev_box)
         if det is None:
             return frame, None, None
         self._prev_box = det.box
         if hasattr(self._classifier, "predict_detection"):          # keypoint posture model
-            min_kpts = 4 if getattr(self, "_is_video_file", False) else getattr(self.config, "min_visible_keypoints", 5)
-            min_conf = 0.35 if getattr(self, "_is_video_file", False) else self.config.posture_min_confidence
+            min_kpts = 4 if self._is_video_file else getattr(self.config, "min_visible_keypoints", 5)
+            min_conf = 0.35 if self._is_video_file else self.config.posture_min_confidence
             probs = self._classifier.predict_detection(
                 det, frame_width=float(frame.shape[1]),
                 min_visible_kpts=min_kpts,
@@ -507,6 +565,20 @@ class AppRuntime:
             "session": None if not sess else {"schedule_id": sess["schedule"].id, "slot": sess["slot"],
                                               "rep": sess["done"], "reps": sess["schedule"].reps},
             "context": {k: v for k, v in self.behavior.context.items() if k != "schedule_since"},
+            "sim": self._sim_status(),
+        }
+
+    def _sim_status(self) -> Optional[Dict]:
+        """Mock mode: what the simulated dog is doing vs. what the pipeline reads from it."""
+        if self.sim is None:
+            return None
+        return {
+            "source": self.sim_source,                    # classifier | synthetic
+            "intent": self.sim.pose,                      # pose the simulated dog is in
+            "forced": self.sim.forced,
+            "pending": self.sim._pending[0] if self.sim._pending else None,
+            "clip_t": self.footage.clip_time if self.footage else None,
+            "note": self.sim_note,
         }
 
     def status(self) -> Dict:
@@ -652,7 +724,7 @@ if __name__ == "__main__":
     # Demo: simulated dog with the demo dogs and schedules. Prints events for ~30 seconds.
     import tempfile
     logging.basicConfig(level=logging.WARNING)
-    rt = AppRuntime(mode="mock", data_dir=Path(tempfile.mkdtemp()), demo=True)
+    rt = AppRuntime(mode="mock", data_dir=Path(tempfile.mkdtemp()), demo=True, sim_source="classifier")
     rt.start()
     seen = set()
     for second in range(30):

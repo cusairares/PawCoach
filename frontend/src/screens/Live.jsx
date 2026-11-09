@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CameraView from "../components/CameraView.jsx";
 import Icon from "../components/Icon.jsx";
 import { Avatar } from "../components/ui.jsx";
@@ -8,8 +8,10 @@ import { CUES, playClick, useLiveSession } from "../hooks/useLiveSession.js";
 import { useStore } from "../store.jsx";
 
 // Live has two engines with the same view:
-//   ApiLive   the backend runs the session (camera or simulated dog on the server)
-//   MockLive  no server: the session is simulated in the browser
+//   ApiLive   the backend runs the session (camera, or the simulated dog whose demo-video
+//             frames go through the real classifier on the server; we show that stream)
+//   MockLive  no server: the browser plays the demo video and decides cues from the
+//             classifier's precomputed output for it (useLiveSession.js)
 export default function Live() {
   const { source, dogs } = useStore();
   if (!dogs.length) return <div className="screen"><h1>Live</h1><p className="muted">Add a dog first.</p></div>;
@@ -36,7 +38,8 @@ function ApiLive() {
       onSelectDog={(idx) => setDogIndex(idx)}
       session={session}
       treats={`${session.treatsToday} / ${session.treatLimit}`}
-      streamSrc={session.mode === "camera" ? api.videoUrl() : null}
+      // camera, or mock mode reading demo frames with the real models: show what the server sees
+      streamSrc={session.mode === "camera" || session.simSource === "classifier" ? api.videoUrl() : null}
       offline={!session.online}
       onCue={onCue}
       onTreat={session.giveTreat}
@@ -49,12 +52,14 @@ function MockLive() {
   // Demo lock: default to first dog
   const [dogIndex, setDogIndex] = useState(0);
   const dog = dogs[dogIndex % dogs.length];
+  const videoRef = useRef(null);
 
   const session = useLiveSession({
     onReward: () => {
       addSuccess(dog.id);
       return giveTreat(dog.id);
     },
+    videoRef,
   });
 
   const onCue = (id) => {
@@ -73,13 +78,14 @@ function MockLive() {
       onSelectDog={(idx) => setDogIndex(idx)}
       session={session}
       treats={`${dog.treatsToday} / ${dog.treatLimit}`}
+      videoRef={videoRef}
       onCue={onCue}
       onTreat={onTreat}
     />
   );
 }
 
-function LiveView({ dog, dogs = [], dogIndex = 0, onSelectDog, session, treats, streamSrc = null, offline = false, onCue, onTreat }) {
+function LiveView({ dog, dogs = [], dogIndex = 0, onSelectDog, session, treats, streamSrc = null, videoRef = null, offline = false, onCue, onTreat }) {
   const [talking, setTalking] = useState(false);
   const [accordionOpen, setAccordionOpen] = useState(false);
   const cue = session.activeCue;
@@ -217,7 +223,7 @@ function LiveView({ dog, dogs = [], dogIndex = 0, onSelectDog, session, treats, 
         )}
       </header>
 
-      <CameraView pose={session.pose} poseLabel={session.poseLabel} streamSrc={streamSrc}>
+      <CameraView pose={session.pose} poseLabel={session.poseLabel} streamSrc={streamSrc} videoRef={videoRef}>
         {offline && <span className="cam-chip cam-chip--talk">Reconnecting to the feeder…</span>}
         {!offline && talking && <span className="cam-chip cam-chip--talk">Speaking through the speaker…</span>}
         <div className="cam-hold">

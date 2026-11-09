@@ -1,6 +1,9 @@
 """Start the API:  python -m server  [options]
 
-    python -m server                      simulated dog + demo dogs (no camera needed)
+    python -m server                      simulated dog + demo dogs (no camera needed); the dog's
+                                          poses are demo-video frames read by the real classifier
+    python -m server --mock-source synthetic   old fake probabilities (no models needed)
+    python -m server --mock-hard          also use the demo stretches the classifier gets wrong
     python -m server --fresh              same, but with a new empty database every start
     python -m server --mode camera        real camera + models (webcam 0)
     python -m server --mode camera --camera rtsp://...  --feeder COM3
@@ -12,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import uvicorn
 
@@ -22,6 +26,11 @@ def main() -> None:
                     help="mock = simulated dog (default), camera = real camera + models")
     default_cam = "video demo/video demo.mp4" if Path("video demo/video demo.mp4").exists() else "0"
     ap.add_argument("--camera", default=default_cam, help="camera index, video file or rtsp:// URL (camera mode)")
+    ap.add_argument("--mock-source", choices=["classifier", "synthetic"], default="classifier",
+                    help="mock mode: classifier = demo video frames through the real models (default), "
+                         "synthetic = made-up probabilities, no models")
+    ap.add_argument("--mock-hard", action="store_true",
+                    help="mock mode: also play the demo stretches the classifier gets wrong")
     ap.add_argument("--feeder", default=None, help="serial port of the ESP32 feeder, e.g. COM3 (default: none)")
     ap.add_argument("--host", default="0.0.0.0", help="0.0.0.0 = reachable from phones on the same Wi-Fi")
     ap.add_argument("--port", type=int, default=8000)
@@ -33,6 +42,8 @@ def main() -> None:
     os.environ["PAWCOACH_MODE"] = args.mode
     os.environ["CAMERA_SOURCE"] = args.camera
     os.environ["PAWCOACH_DEMO"] = "0" if args.no_demo else "1"
+    os.environ["PAWCOACH_MOCK_SOURCE"] = args.mock_source
+    os.environ["PAWCOACH_MOCK_HARD"] = "1" if args.mock_hard else "0"
     if args.feeder:
         os.environ["FEEDER_PORT"] = args.feeder
     if args.fresh:

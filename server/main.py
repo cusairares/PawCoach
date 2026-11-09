@@ -42,7 +42,10 @@ def runtime_from_env() -> AppRuntime:
     return AppRuntime(mode=os.getenv("PAWCOACH_MODE", "mock"),
                       camera_source=os.getenv("CAMERA_SOURCE", "0"),
                       data_dir=Path(os.getenv("PAWCOACH_DATA", str(DEFAULT_DATA_DIR))),
-                      demo=os.getenv("PAWCOACH_DEMO", "1") == "1")
+                      demo=os.getenv("PAWCOACH_DEMO", "1") == "1",
+                      # mock mode: demo video through the real classifier unless asked otherwise
+                      sim_source=os.getenv("PAWCOACH_MOCK_SOURCE", "classifier"),
+                      sim_include_hard=os.getenv("PAWCOACH_MOCK_HARD", "0") == "1")
 
 
 def _format_validation_error(exc: RequestValidationError) -> str:
@@ -109,7 +112,8 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
     @app.get("/api/health", tags=["live"])
     def health():
         return {"ok": True, "mode": rt.mode, "feeder": type(rt.feeder).__name__,
-                "camera": rt.mode == "camera"}
+                "camera": rt.mode == "camera",
+                "sim_source": rt.sim_source}        # mock mode: classifier | synthetic
 
     @app.get("/api/status", tags=["live"])
     def status():
