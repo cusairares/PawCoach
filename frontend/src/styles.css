@@ -298,3 +298,153 @@ p { margin: 0; }
 .check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; font-size: 15px; font-weight: 700; }
 .check-row + .check-row { border-top: 1px solid var(--soft); }
 .check-row input { width: 22px; height: 22px; accent-color: var(--sage-switch); }
+
+
+/* ---------- Dog Images & Avatars ---------- */
+.avatar { overflow: hidden; position: relative; }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+.cam-img-feed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.92; }
+.cam-overlay-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(46,38,33,0.3) 0%, rgba(46,38,33,0.7) 100%); pointer-events: none; }
+.cam-box-label { position: absolute; top: -24px; left: -2px; background: var(--honey); color: var(--ink); font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 6px; }
+.zone-preview-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.85; }
+
+/* ---------- Add Pet Modal ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(59, 47, 40, 0.48); backdrop-filter: blur(4px);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.modal-sheet {
+  width: 100%; max-width: 430px; background: var(--bg);
+  border-radius: 28px 28px 0 0; padding: 20px 20px 32px;
+  box-shadow: 0 -12px 40px rgba(59, 47, 40, 0.22);
+  animation: sheetUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 90dvh; overflow-y: auto;
+}
+@keyframes sheetUp {
+  from { transform: translateY(100%); opacity: 0.5; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.icon-btn--sm { width: 34px; height: 34px; }
+.btn--sm { min-height: 38px; padding: 0 14px; font-size: 13px; border-radius: 12px; }
+
+.form-image-picker { display: flex; gap: 14px; align-items: center; padding: 8px 0; }
+.avatar-preview-wrap { flex: none; border-radius: 50%; box-shadow: 0 4px 14px rgba(59, 47, 40, 0.12); }
+.preset-row { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; }
+.preset-btn {
+  flex: none; width: 38px; height: 38px; border-radius: 50%;
+  border: 2px solid transparent; overflow: hidden; padding: 0; background: none; cursor: pointer;
+}
+.preset-btn img { width: 100%; height: 100%; object-fit: cover; }
+.preset-btn.is-selected { border-color: var(--honey); box-shadow: 0 0 0 2px var(--honey); }
+
+.form-field { display: flex; flex-direction: column; gap: 4px; }
+.form-field label { font-size: 13px; font-weight: 800; color: var(--muted); }
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.text-input {
+  width: 100%; min-height: 48px; border-radius: 14px; border: 1.5px solid var(--line);
+  background: var(--surface); padding: 0 14px; font-size: 15px; font-weight: 700; color: var(--ink);
+  outline: none; transition: border-color 0.15s;
+}
+.text-input:focus { border-color: var(--sky-strong); }
+
+/* ---------- Moments Screen (Snap Feed & Like-Only) ---------- */
+.moments-feed-container {
+  position: relative; width: 100%; height: calc(100dvh - 66px);
+  display: flex; flex-direction: column; background: #12100E; overflow: hidden;
+}
+.moments-top-bar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 18px 24px;
+  background: linear-gradient(180deg, rgba(18, 16, 14, 0.75) 0%, transparent 100%);
+  color: #FFFFFF; pointer-events: none;
+}
+.moments-top-bar h1 { font-size: 24px; font-weight: 900; color: #FFFFFF; }
+.ap-badge {
+  pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800;
+  background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(10px);
+  padding: 4px 10px; border-radius: 99px; color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; }
+.status-dot.is-synced { background: #5BD272; }
+.status-dot.is-queued { background: var(--honey); animation: pulse 1.2s infinite; }
+
+.moments-snap-feed {
+  flex: 1; overflow-y: scroll; scroll-snap-type: y mandatory;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.moments-snap-feed::-webkit-scrollbar { display: none; }
+
+.moment-card {
+  position: relative; width: 100%; height: calc(100dvh - 66px);
+  scroll-snap-align: start; scroll-snap-stop: always;
+  background: #1A1613; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; user-select: none;
+}
+.moment-video { width: 100%; height: 100%; object-fit: cover; }
+.moment-scrim {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 40%, rgba(18, 16, 14, 0.88) 100%);
+  pointer-events: none;
+}
+
+.moment-info {
+  position: absolute; left: 16px; bottom: 20px; right: 80px; z-index: 5;
+  display: flex; flex-direction: column; gap: 8px; color: #FFFFFF;
+}
+.moment-dog-row { display: flex; align-items: center; gap: 10px; }
+.moment-dog-name { font-size: 18px; font-weight: 900; color: #FFFFFF; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+.moment-dog-breed { font-size: 13px; color: #E9DED2; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+.moment-caption { font-size: 15px; font-weight: 700; line-height: 1.35; color: #FBF7F2; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+
+.moment-actions {
+  position: absolute; right: 14px; bottom: 24px; z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.moment-like-btn {
+  background: none; border: 0; display: flex; flex-direction: column; align-items: center;
+  gap: 4px; color: #FFFFFF; padding: 6px; cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.moment-like-btn:active { transform: scale(0.85); }
+.like-icon-wrap {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(46, 38, 33, 0.55); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  color: #FFFFFF; transition: all 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.moment-like-btn.is-liked .like-icon-wrap {
+  color: #FF3B5C; background: rgba(255, 59, 92, 0.2);
+  transform: scale(1.1); box-shadow: 0 0 16px rgba(255, 59, 92, 0.4);
+}
+.like-count { font-size: 13px; font-weight: 900; color: #FFFFFF; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+
+.heart-burst {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  color: #FF3B5C; pointer-events: none; z-index: 8;
+  animation: heartPop 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  filter: drop-shadow(0 4px 18px rgba(255, 59, 92, 0.7));
+}
+@keyframes heartPop {
+  0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0.9; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
+}
+
+.play-overlay {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  pointer-events: none; z-index: 4;
+}
+.play-icon-circle {
+  width: 60px; height: 60px; border-radius: 50%;
+  background: rgba(46, 38, 33, 0.5); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; color: #FFFFFF; padding-left: 4px;
+}
+.moments-loading-tail {
+  height: 80px; display: flex; align-items: center; justify-content: center;
+  background: #12100E;
+}

@@ -3,10 +3,20 @@ import Icon from "./Icon.jsx";
 import { Link } from "../router.jsx";
 
 export function Avatar({ dog, size = 48, ring }) {
+  const imgSrc = dog?.image || dog?.image_url;
   return (
     <span className="avatar" style={{ width: size, height: size, fontSize: Math.round(size / 2.5),
-      background: dog.color, boxShadow: ring ? `0 0 0 3px ${ring}` : undefined }}>
-      {dog.initial ?? dog.name[0]}
+      background: dog?.color || "#F5BE6B", boxShadow: ring ? `0 0 0 3px ${ring}` : undefined }}>
+      {imgSrc ? (
+        <img
+          src={imgSrc}
+          alt={dog?.name || "Dog"}
+          className="avatar-img"
+          onError={(e) => { e.currentTarget.style.display = "none"; }}
+        />
+      ) : (
+        dog?.initial ?? dog?.name?.[0] ?? "🐶"
+      )}
     </span>
   );
 }
