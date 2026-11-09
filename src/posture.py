@@ -78,8 +78,8 @@ class PostureClassifier:
         f_orig = extract_pose_features(det.box, det.keypoints_xy, det.keypoints_conf)
 
         # 3. Mirror TTA (left/right invariance)
-        _, m_xy, m_conf = mirror_pose(det.box, det.keypoints_xy, det.keypoints_conf, frame_width)
-        f_mirror = extract_pose_features(det.box, m_xy, m_conf)
+        m_box, m_xy, m_conf = mirror_pose(det.box, det.keypoints_xy, det.keypoints_conf, frame_width)
+        f_mirror = extract_pose_features(m_box, m_xy, m_conf)  # mirrored box, not the original
 
         # Average predictions from original and mirrored orientation
         p_orig = self.predict_features(f_orig)
