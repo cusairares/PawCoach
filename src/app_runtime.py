@@ -134,8 +134,9 @@ class AppRuntime:
         self.sessions = scheduler.SessionClock()
 
         if demo and not self.store.dogs():
-            seed_demo(self.store, self.settings)
-            seed_history(self.store, self.event_log, wall())
+            now_wall = wall()
+            seed_demo(self.store, self.settings, now_wall)
+            seed_history(self.store, self.event_log, now_wall)
         dogs = self.store.dogs()
         self.dog_id: Optional[int] = dogs[0].id if dogs else None
 
@@ -397,6 +398,18 @@ class AppRuntime:
             self.dog_id = dog_id
             self._apply_schedules(self.clock())
 
+    def archive_dog(self, dog_id: int) -> None:
+        if self.store.dog(dog_id) is None:
+            raise KeyError(f"Dog {dog_id} not found")
+        with self._engine_lock:
+            self.store.update_dog(dog_id, {"archived": 1})
+            if self.dog_id == dog_id:
+                self.behavior.cancel()
+                self._session = None
+                remaining = self.store.dogs()
+                self.dog_id = remaining[0].id if remaining else None
+                self._apply_schedules(self.clock())
+
     def submit_command(self, exercise: str) -> str:
         """``exercise``: an exercise id (sit, down, stand, stay) or a posture label (sitting, lying...)."""
         if self.dog_id is None:
@@ -529,8 +542,9 @@ def _event_dict(e: Event) -> Dict:
             "schedule_id": e.schedule_id}
 
 
-def seed_demo(store: AppStore, settings: SettingsStore) -> None:
+def seed_demo(store: AppStore, settings: SettingsStore, wall: Optional[float] = None) -> None:
     """Creates the three demo dogs and schedules shown in the app mockup."""
+    now_wall = time.time() if wall is None else wall
     # device-wide cap (per-dog limits apply below) and a short gap so live demos aren't blocked
     settings.update({"daily_treat_limit": 100, "min_seconds_between_treats": 3})
     bruno = store.add_dog(Dog("Bruno", "Labrador", "2023-09-14", 31, "#F29E6D", 35))
@@ -547,7 +561,7 @@ def seed_demo(store: AppStore, settings: SettingsStore) -> None:
     for dog_id, exs in stages.items():
         for ex_id, (stage, moments, hold, wins, ago) in exs.items():
             p = store.progress(dog_id, ex_id)
-            p.stage, p.moments, p.started_at = stage, moments, time.time() - ago * days
+            p.stage, p.moments, p.started_at = stage, moments, now_wall - ago * days
             if hold:
                 p.hold_s = p.best_hold_s = hold
                 p.recent = [0] * (10 - wins) + [1] * wins
@@ -590,14 +604,15 @@ def seed_history(store: AppStore, event_log: EventLog, wall: float, seed: int = 
                                     reaction_s=round(rng.uniform(0.6, 1.6), 2) if ok else None,
                                     treat=ok, detail=None if ok else "timeout", dog_id=dog.id))
         # earlier today: commands for trained exercises, captures for the ones being learned
-        t = today + 8 * 3600
-        span = max(60.0, wall - 60 - t)
+        end = max(today, wall - 60)
+        t = min(today + 8 * 3600, max(today, end - 3600))
+        span = max(0.0, end - t)
         n = sum(today_counts.values())
         k = 0
         for ex_id, count in today_counts.items():
             p = store.progress(dog.id, ex_id)
             for _ in range(count):
-                ts = max(today, min(wall - 60, t + span * k / max(1, n)))
+                ts = t + span * k / max(1, n)
                 k += 1
                 if p.stage == "learn":
                     event_log.add(Event("passive_capture", ts=ts, target=p.exercise.pose,

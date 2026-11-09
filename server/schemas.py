@@ -1,13 +1,23 @@
 """Request bodies for the API. Responses are plain dicts built by src.app_runtime."""
-from typing import List, Literal, Optional
+from typing import Any, ClassVar, List, Literal, Optional, Set
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Stage = Literal["next", "learn", "train", "mastered"]
 
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")       # unknown fields -> 422 instead of being ignored
+    _nullable_fields: ClassVar[Set[str]] = set()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_null_on_non_nullable(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if v is None and k in cls.model_fields and k not in cls._nullable_fields:
+                    raise ValueError(f"'{k}' cannot be null")
+        return data
 
 
 class CommandIn(Strict):
@@ -19,6 +29,7 @@ class SimPoseIn(Strict):
 
 
 class DogIn(Strict):
+    _nullable_fields: ClassVar[Set[str]] = {"breed", "birth_date", "weight_kg", "color"}
     name: str = Field(min_length=1, max_length=40)
     breed: Optional[str] = None
     birth_date: Optional[str] = Field(None, description="YYYY-MM-DD")
@@ -29,6 +40,7 @@ class DogIn(Strict):
 
 
 class DogPatch(Strict):
+    _nullable_fields: ClassVar[Set[str]] = {"breed", "birth_date", "weight_kg", "color"}
     name: Optional[str] = Field(None, min_length=1, max_length=40)
     breed: Optional[str] = None
     birth_date: Optional[str] = None
@@ -43,6 +55,7 @@ class StageIn(Strict):
 
 
 class ScheduleIn(Strict):
+    _nullable_fields: ClassVar[Set[str]] = {"start", "end"}
     dog_id: int
     kind: Literal["learn", "train"]
     exercise_ids: List[str] = Field(min_length=1)
@@ -57,7 +70,8 @@ class ScheduleIn(Strict):
 
 
 class SchedulePatch(Strict):
-    exercise_ids: Optional[List[str]] = None
+    _nullable_fields: ClassVar[Set[str]] = {"start", "end"}
+    exercise_ids: Optional[List[str]] = Field(None, min_length=1)
     days: Optional[List[int]] = None
     start: Optional[str] = None
     end: Optional[str] = None

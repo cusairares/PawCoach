@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src import training_plan as plan
@@ -43,6 +44,18 @@ def runtime_from_env() -> AppRuntime:
                       demo=os.getenv("PAWCOACH_DEMO", "1") == "1")
 
 
+def _format_validation_error(exc: RequestValidationError) -> str:
+    parts = []
+    for err in exc.errors():
+        loc = [str(p) for p in err.get("loc", ()) if p != "body"]
+        field = ".".join(loc)
+        msg = err.get("msg", "Invalid value")
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, "):]
+        parts.append(f"Invalid {field}: {msg}" if field else msg)
+    return "; ".join(parts) or "Invalid request body"
+
+
 def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> FastAPI:
     """``run_loop=False`` (tests): the engine thread isn't started, call ``runtime.step()`` yourself."""
     rt = runtime or runtime_from_env()
@@ -60,6 +73,10 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
     app.state.runtime = rt
     # The app runs on another port in development (Vite, :5173) and on phones on the same Wi-Fi.
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        return JSONResponse(status_code=422, content={"detail": _format_validation_error(exc)})
 
     def get_dog(dog_id: int) -> Dog:
         dog = store.dog(dog_id)
@@ -170,10 +187,7 @@ def create_app(runtime: Optional[AppRuntime] = None, run_loop: bool = True) -> F
     def archive_dog(dog_id: int):
         """Archives the dog (its history stays in the database)."""
         get_dog(dog_id)
-        store.update_dog(dog_id, {"archived": 1})
-        if rt.dog_id == dog_id:
-            remaining = store.dogs()
-            rt.dog_id = remaining[0].id if remaining else None
+        rt.archive_dog(dog_id)
         return {"ok": True}
 
     @app.post("/api/dogs/{dog_id}/select", tags=["dogs"])
