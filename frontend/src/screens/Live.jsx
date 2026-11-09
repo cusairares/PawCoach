@@ -221,12 +221,11 @@ function LiveView({ dog, dogs = [], dogIndex = 0, onSelectDog, session, treats, 
         {offline && <span className="cam-chip cam-chip--talk">Reconnecting to the feeder…</span>}
         {!offline && talking && <span className="cam-chip cam-chip--talk">Speaking through the speaker…</span>}
         <div className="cam-hold">
-          <div className="row-between small">
+          <div className="small">
             <span>
               {cue ? <>Hold “{cue.label}” · <strong>{session.heldS.toFixed(1)} / {cue.holdS.toFixed(1)} s</strong></>
                 : "Pick a cue to start"}
             </span>
-            <span>Rep <strong>{session.rep}/{session.reps}</strong></span>
           </div>
           <div className="cam-progress"><div style={{ width: `${progress}%` }} /></div>
         </div>

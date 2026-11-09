@@ -56,7 +56,7 @@ EXERCISES: Dict[str, Exercise] = {e.id: e for e in [
 @dataclass
 class TrainingCommand(CommandRequest):
     """A command from the app with training context. Extends CommandRequest without changing it."""
-    hold_s: Optional[float] = None
+    hold_s: Optional[float] = 1.0
     dog_id: Optional[int] = None
     schedule_id: Optional[int] = None
     exercise_id: Optional[str] = None
@@ -77,8 +77,8 @@ class Progress:
     stage: str = "next"
     moments: int = 0
     moments_goal: int = MOMENTS_GOAL
-    hold_s: float = 0.0
-    best_hold_s: float = 0.0
+    hold_s: float = 1.0
+    best_hold_s: float = 1.0
     streak: int = 0
     fail_streak: int = 0
     recent: List[int] = field(default_factory=list)     # 1/0 for the last attempts

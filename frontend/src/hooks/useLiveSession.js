@@ -8,10 +8,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export const CUES = {
-  sit: { id: "sit", label: "Sit", pose: "sitting", holdS: 2.0 },
-  down: { id: "down", label: "Down", pose: "lying", holdS: 2.0 },
-  stand: { id: "stand", label: "Stand", pose: "standing", holdS: 1.5 },
-  stay: { id: "stay", label: "Stay", pose: "sitting", holdS: 5.0 },
+  sit: { id: "sit", label: "Sit", pose: "sitting", holdS: 1.0 },
+  down: { id: "down", label: "Down", pose: "lying", holdS: 1.0 },
+  stand: { id: "stand", label: "Stand", pose: "standing", holdS: 1.0 },
+  stay: { id: "stay", label: "Stay", pose: "sitting", holdS: 1.0 },
 };
 
 export const POSE_LABEL = { sitting: "Sitting", standing: "Standing", lying: "Lying down" };
