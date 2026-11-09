@@ -208,6 +208,18 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(captures[1]["detail"], "silent:schedule_interval")
         self.assertEqual(self.store.progress(self.dog.id, "down").moments, 6)
 
+    def test_cues_from_the_app_ignore_the_learning_window_limits(self):
+        self.set_stage("down", "learn")
+        self.set_stage("sit", "train")
+        self.store.add_schedule(Schedule(self.dog.id, "learn", ["down"], start="10:00", end="17:00",
+                                         max_treats=1, min_interval_s=1800))
+        self.engine.set_sim_pose("lying")
+        out = run(self.engine, self.clock, 4)                         # uses the window's only treat
+        out += self.command("sit") + self.command("sit")
+        self.assertTrue(self.engine.manual_treat()["ok"])
+        self.assertEqual([e["treat"] for e in out if e["type"] == "command_success"], [True, True])
+        self.assertEqual([e["schedule_id"] for e in out if e["type"] == "command_success"], [None, None])
+
     def test_no_passive_capture_outside_learning_windows(self):
         self.set_stage("down", "learn")
         self.store.add_schedule(Schedule(self.dog.id, "learn", ["down"], start="14:00", end="15:00"))
