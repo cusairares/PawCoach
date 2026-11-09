@@ -1,8 +1,9 @@
 /**
  * Concrete HttpRepository implementing IPetRepository.
- * Consumes backend endpoints (/api/*) when available and maintains an AP cache
+ * Consumes FastAPI backend endpoints (/api/*) when available and maintains an AP cache
  * with write-behind queues for offline edge resilience.
  */
+import { api } from "../api.js";
 import { IPetRepository } from "./IPetRepository.js";
 
 const CACHE_KEYS = {
@@ -14,8 +15,8 @@ const CACHE_KEYS = {
   QUEUE: "pawcoach_repo_queue_v1",
 };
 
-// Initial database seed snapshot so the app is instantly populated
-const SEED_CACHE = {
+// Initial database seed snapshot so the app is instantly populated when offline
+export const SEED_CACHE = {
   dogs: [
     {
       id: "bruno", name: "Bruno", pronoun: "he", initial: "B", color: "#F29E6D",
@@ -118,9 +119,8 @@ function writeStorage(key, val) {
 }
 
 export class HttpRepository extends IPetRepository {
-  constructor(baseUrl = "") {
+  constructor() {
     super();
-    this.baseUrl = baseUrl;
     this._initLocalCache();
   }
 
@@ -139,156 +139,120 @@ export class HttpRepository extends IPetRepository {
     }
   }
 
-  async _fetchOrFallback(url, options = {}, fallbackFn) {
-    if (this.baseUrl) {
-      try {
-        const res = await fetch(`${this.baseUrl}${url}`, {
-          headers: { "Content-Type": "application/json" },
-          ...options,
-        });
-        if (res.ok) {
-          return await res.json();
-        }
-      } catch {
-        // Fall back to local AP cache
-      }
+  async _tryApiOrFallback(apiCall, fallbackFn) {
+    try {
+      return await apiCall();
+    } catch {
+      return fallbackFn();
     }
-    return fallbackFn();
   }
 
   // ------------------------------------------------------------------ dogs
   async getDogs() {
-    return this._fetchOrFallback("/api/dogs", {}, () => {
-      return readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
-    });
+    return readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
   }
 
   async getDog(dogId) {
-    return this._fetchOrFallback(`/api/dogs/${dogId}`, {}, () => {
-      const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
-      return dogs.find((d) => d.id === dogId) || null;
-    });
+    const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
+    return dogs.find((d) => d.id === dogId) || null;
   }
 
   async createDog(data) {
-    return this._fetchOrFallback("/api/dogs", { method: "POST", body: JSON.stringify(data) }, () => {
-      const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
-      const newDog = {
-        id: data.id || data.name.toLowerCase().replace(/[^a-z0-9]/g, "") + "_" + Date.now().toString(36),
-        name: data.name,
-        pronoun: data.pronoun || "he",
-        initial: data.name[0].toUpperCase(),
-        color: data.color || "#F29E6D",
-        image: data.image || "/dogs/default.jpg",
-        breed: data.breed || "Mixed breed",
-        age: data.age || "1 yr",
-        weight: data.weight || "15 kg",
-        score: 700,
-        rank: 20,
-        city: "Bucharest",
-        streak: 1,
-        success7d: 80,
-        reaction: "1.0 s",
-        successesToday: 0,
-        treatsToday: 0,
-        treatLimit: data.treatLimit || 25,
-        week: data.week || [50, 60, 65, 70, 75, 80, 80],
-        exercises: data.exercises || [
-          { id: "sit", name: "Sit", stage: "learn", moments: 0, goal: 30, startedAgo: "just started",
-            schedule: "Daily, 09:00–18:00", limitNote: "max 10 treats · one every 30 min", caught: [] },
-          { id: "down", name: "Down", stage: "train", rate: 80, level: 2, detail: "Holds 1.0 s" },
-          { id: "stand", name: "Stand", stage: "next", detail: "Starts once sit is mastered" },
-          { id: "stay", name: "Stay", stage: "next", detail: "Starts once sit is mastered" },
-        ],
-      };
-      const updated = [newDog, ...dogs];
-      writeStorage(CACHE_KEYS.DOGS, updated);
-      return newDog;
-    });
+    const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
+    const newDog = {
+      id: data.id || data.name.toLowerCase().replace(/[^a-z0-9]/g, "") + "_" + Date.now().toString(36),
+      name: data.name,
+      pronoun: data.pronoun || "he",
+      initial: data.name[0].toUpperCase(),
+      color: data.color || "#F29E6D",
+      image: data.image || "/dogs/default.jpg",
+      breed: data.breed || "Mixed breed",
+      age: data.age || "1 yr",
+      weight: data.weight || "15 kg",
+      score: 700,
+      rank: 20,
+      city: "Bucharest",
+      streak: 1,
+      success7d: 80,
+      reaction: "1.0 s",
+      successesToday: 0,
+      treatsToday: 0,
+      treatLimit: data.treatLimit || 25,
+      week: data.week || [50, 60, 65, 70, 75, 80, 80],
+      exercises: data.exercises || [
+        { id: "sit", name: "Sit", stage: "learn", moments: 0, goal: 30, startedAgo: "just started",
+          schedule: "Daily, 09:00–18:00", limitNote: "max 10 treats · one every 30 min", caught: [] },
+        { id: "down", name: "Down", stage: "train", rate: 80, level: 2, detail: "Holds 1.0 s" },
+        { id: "stand", name: "Stand", stage: "next", detail: "Starts once sit is mastered" },
+        { id: "stay", name: "Stay", stage: "next", detail: "Starts once sit is mastered" },
+      ],
+    };
+    const updated = [newDog, ...dogs];
+    writeStorage(CACHE_KEYS.DOGS, updated);
+    return newDog;
   }
 
   async updateDog(dogId, patch) {
-    return this._fetchOrFallback(`/api/dogs/${dogId}`, { method: "PATCH", body: JSON.stringify(patch) }, () => {
-      const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
-      const updated = dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d));
-      writeStorage(CACHE_KEYS.DOGS, updated);
-      return updated.find((d) => d.id === dogId) || null;
-    });
+    const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
+    const updated = dogs.map((d) => (d.id === dogId ? { ...d, ...patch } : d));
+    writeStorage(CACHE_KEYS.DOGS, updated);
+    return updated.find((d) => d.id === dogId) || null;
   }
 
   async giveTreat(dogId) {
-    return this._fetchOrFallback(`/api/dogs/${dogId}/treat`, { method: "POST" }, () => {
-      const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
-      const target = dogs.find((d) => d.id === dogId);
-      if (!target || target.treatsToday >= target.treatLimit) {
-        return { ok: false, treatsToday: target ? target.treatsToday : 0 };
-      }
-      const updated = dogs.map((d) => (d.id === dogId ? { ...d, treatsToday: d.treatsToday + 1 } : d));
-      writeStorage(CACHE_KEYS.DOGS, updated);
+    const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
+    const target = dogs.find((d) => d.id === dogId);
+    if (!target || target.treatsToday >= target.treatLimit) {
+      return { ok: false, treatsToday: target ? target.treatsToday : 0 };
+    }
+    const updated = dogs.map((d) => (d.id === dogId ? { ...d, treatsToday: d.treatsToday + 1 } : d));
+    writeStorage(CACHE_KEYS.DOGS, updated);
 
-      const devices = readStorage(CACHE_KEYS.DEVICES, SEED_CACHE.devices);
-      const newHopper = Math.max(0, Math.round(((devices.feeder?.hopper ?? 68) - 0.5) * 10) / 10);
-      devices.feeder.hopper = newHopper;
-      writeStorage(CACHE_KEYS.DEVICES, devices);
+    const devices = readStorage(CACHE_KEYS.DEVICES, SEED_CACHE.devices);
+    const newHopper = Math.max(0, Math.round(((devices.feeder?.hopper ?? 68) - 0.5) * 10) / 10);
+    devices.feeder.hopper = newHopper;
+    writeStorage(CACHE_KEYS.DEVICES, devices);
 
-      return { ok: true, treatsToday: target.treatsToday + 1, hopper: newHopper };
-    });
+    return { ok: true, treatsToday: target.treatsToday + 1, hopper: newHopper };
   }
 
   async addSuccess(dogId) {
-    return this._fetchOrFallback(`/api/dogs/${dogId}/success`, { method: "POST" }, () => {
-      const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
-      const updated = dogs.map((d) => (d.id === dogId ? { ...d, successesToday: d.successesToday + 1 } : d));
-      writeStorage(CACHE_KEYS.DOGS, updated);
-      return updated.find((d) => d.id === dogId) || null;
-    });
+    const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
+    const updated = dogs.map((d) => (d.id === dogId ? { ...d, successesToday: d.successesToday + 1 } : d));
+    writeStorage(CACHE_KEYS.DOGS, updated);
+    return updated.find((d) => d.id === dogId) || null;
   }
 
   async setExerciseStage(dogId, exerciseId, stage) {
-    return this._fetchOrFallback(
-      `/api/dogs/${dogId}/exercises/${exerciseId}/stage`,
-      { method: "POST", body: JSON.stringify({ stage }) },
-      () => {
-        const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
-        const updated = dogs.map((d) => {
-          if (d.id !== dogId) return d;
-          return {
-            ...d,
-            exercises: d.exercises.map((e) => (e.id === exerciseId ? { ...e, stage } : e)),
-          };
-        });
-        writeStorage(CACHE_KEYS.DOGS, updated);
-        return updated.find((d) => d.id === dogId) || null;
-      }
-    );
+    const dogs = readStorage(CACHE_KEYS.DOGS, SEED_CACHE.dogs);
+    const updated = dogs.map((d) => {
+      if (d.id !== dogId) return d;
+      return {
+        ...d,
+        exercises: d.exercises.map((e) => (e.id === exerciseId ? { ...e, stage } : e)),
+      };
+    });
+    writeStorage(CACHE_KEYS.DOGS, updated);
+    return updated.find((d) => d.id === dogId) || null;
   }
 
   // ------------------------------------------------------------------ schedules
   async getSchedules(dogId) {
-    return this._fetchOrFallback(`/api/schedules${dogId ? `?dog=${dogId}` : ""}`, {}, () => {
-      const schedules = readStorage(CACHE_KEYS.SCHEDULES, SEED_CACHE.schedules);
-      return dogId ? schedules.filter((s) => s.dog === dogId) : schedules;
-    });
+    const schedules = readStorage(CACHE_KEYS.SCHEDULES, SEED_CACHE.schedules);
+    return dogId ? schedules.filter((s) => s.dog === dogId) : schedules;
   }
 
   async updateSchedule(scheduleId, patch) {
-    return this._fetchOrFallback(
-      `/api/schedules/${scheduleId}`,
-      { method: "PATCH", body: JSON.stringify(patch) },
-      () => {
-        const schedules = readStorage(CACHE_KEYS.SCHEDULES, SEED_CACHE.schedules);
-        const updated = schedules.map((s) => (s.id === scheduleId ? { ...s, ...patch } : s));
-        writeStorage(CACHE_KEYS.SCHEDULES, updated);
-        return updated.find((s) => s.id === scheduleId) || null;
-      }
-    );
+    const schedules = readStorage(CACHE_KEYS.SCHEDULES, SEED_CACHE.schedules);
+    const updated = schedules.map((s) => (s.id === scheduleId ? { ...s, ...patch } : s));
+    writeStorage(CACHE_KEYS.SCHEDULES, updated);
+    return updated.find((s) => s.id === scheduleId) || null;
   }
 
   // ------------------------------------------------------------------ moments & likes
   async getRandomMoments(limit = 5, excludeIds = [], clientId = "default") {
-    return this._fetchOrFallback(
-      `/api/moments/random?limit=${limit}&exclude=${excludeIds.join(",")}&clientId=${clientId}`,
-      {},
+    return this._tryApiOrFallback(
+      () => api.momentsRandom(limit, excludeIds, clientId),
       () => {
         const catalog = readStorage(CACHE_KEYS.MOMENTS, SEED_CACHE.moments);
         const excludeSet = new Set(excludeIds);
@@ -301,54 +265,48 @@ export class HttpRepository extends IPetRepository {
   }
 
   async setMomentLike(momentId, clientId, liked) {
-    return this._fetchOrFallback(
-      `/api/moments/${momentId}/like`,
-      { method: "POST", body: JSON.stringify({ clientId, liked }) },
-      () => {
-        const catalog = readStorage(CACHE_KEYS.MOMENTS, SEED_CACHE.moments);
-        let nextCount = 0;
-        const updated = catalog.map((m) => {
-          if (m.id === momentId) {
-            nextCount = liked ? m.likesCount + 1 : Math.max(0, m.likesCount - 1);
-            return { ...m, liked, likesCount: nextCount };
-          }
-          return m;
-        });
-        writeStorage(CACHE_KEYS.MOMENTS, updated);
-        return { momentId, liked, likesCount: nextCount };
+    // Always update local AP cache first
+    const catalog = readStorage(CACHE_KEYS.MOMENTS, SEED_CACHE.moments);
+    let nextCount = 0;
+    const updated = catalog.map((m) => {
+      if (m.id === momentId) {
+        nextCount = liked ? m.likesCount + 1 : Math.max(0, m.likesCount - 1);
+        return { ...m, liked, likesCount: nextCount };
       }
+      return m;
+    });
+    writeStorage(CACHE_KEYS.MOMENTS, updated);
+
+    return this._tryApiOrFallback(
+      () => api.likeMoment(momentId, clientId, liked),
+      () => ({ momentId, liked, likesCount: nextCount })
     );
   }
 
   // ------------------------------------------------------------------ leaderboard
   async getLeaderboard(category = "score", scope = "city") {
-    return this._fetchOrFallback(`/api/leaderboard?category=${category}&scope=${scope}`, {}, () => {
-      const catList = SEED_CACHE.leaderboardCats[category] || SEED_CACHE.leaderboardCats.score;
-      return catList.map(([id, value, move], i) => {
-        const [name, breed, area, color, image] = SEED_CACHE.leaderboardDogs[id];
-        return { id, rank: i + 1, name, breed, area, color, image, value, move, mine: id === "bruno" };
-      });
-    });
+    return this._tryApiOrFallback(
+      () => api.leaderboard(category, scope),
+      () => {
+        const catList = SEED_CACHE.leaderboardCats[category] || SEED_CACHE.leaderboardCats.score;
+        return catList.map(([id, value, move], i) => {
+          const [name, breed, area, color, image] = SEED_CACHE.leaderboardDogs[id];
+          return { id, rank: i + 1, name, breed, area, color, image, value, move, mine: id === "bruno" };
+        });
+      }
+    );
   }
 
   // ------------------------------------------------------------------ devices
   async getDevices() {
-    return this._fetchOrFallback("/api/devices", {}, () => {
-      return readStorage(CACHE_KEYS.DEVICES, SEED_CACHE.devices);
-    });
+    return readStorage(CACHE_KEYS.DEVICES, SEED_CACHE.devices);
   }
 
   async updateDevice(deviceName, patch) {
-    return this._fetchOrFallback(
-      `/api/devices/${deviceName}`,
-      { method: "PATCH", body: JSON.stringify(patch) },
-      () => {
-        const devices = readStorage(CACHE_KEYS.DEVICES, SEED_CACHE.devices);
-        devices[deviceName] = { ...(devices[deviceName] || {}), ...patch };
-        writeStorage(CACHE_KEYS.DEVICES, devices);
-        return devices[deviceName];
-      }
-    );
+    const devices = readStorage(CACHE_KEYS.DEVICES, SEED_CACHE.devices);
+    devices[deviceName] = { ...(devices[deviceName] || {}), ...patch };
+    writeStorage(CACHE_KEYS.DEVICES, devices);
+    return devices[deviceName];
   }
 }
 

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS dogs (
     weight_kg REAL,
     color TEXT,                      -- avatar color in the app
     image_url TEXT,
+    pronoun TEXT NOT NULL DEFAULT 'he',  -- he | she, for the app's texts
     daily_treat_limit INTEGER NOT NULL DEFAULT 20,
     archived INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
@@ -106,11 +107,12 @@ class Dog:
     name: str
     breed: Optional[str] = None
     birth_date: Optional[str] = None
-    age_text: Optional[str] = None
     weight_kg: Optional[float] = None
     color: Optional[str] = None
-    image_url: Optional[str] = None
     daily_treat_limit: int = 20
+    pronoun: str = "he"                        # he | she
+    age_text: Optional[str] = None
+    image_url: Optional[str] = None
     id: Optional[int] = None
     archived: bool = False
     created_at: float = field(default_factory=time.time)
@@ -187,20 +189,20 @@ class AppStore:
         self._conn.execute("PRAGMA synchronous=NORMAL;")
         self._conn.execute("PRAGMA busy_timeout=5000;")
         self._conn.executescript(SCHEMA)
-
-        self._migrate_sqlite_schema()
+        self._migrate()
         self._seed_initial_moments()
 
         if self.database_url:
             self._init_postgres()
 
-    def _migrate_sqlite_schema(self) -> None:
+    def _migrate(self) -> None:
+        """Adds columns that older app.db files don't have yet."""
         with self._lock:
-            cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(dogs)").fetchall()}
-            if "age_text" not in cols:
-                self._conn.execute("ALTER TABLE dogs ADD COLUMN age_text TEXT")
-            if "image_url" not in cols:
-                self._conn.execute("ALTER TABLE dogs ADD COLUMN image_url TEXT")
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(dogs)")}
+            for col, ddl in (("pronoun", "TEXT NOT NULL DEFAULT 'he'"), ("age_text", "TEXT"),
+                             ("image_url", "TEXT")):
+                if col not in cols:
+                    self._conn.execute(f"ALTER TABLE dogs ADD COLUMN {col} {ddl}")
             self._conn.commit()
 
     def _seed_initial_moments(self) -> None:
@@ -231,10 +233,10 @@ class AppStore:
     def add_dog(self, dog: Dog) -> Dog:
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "INSERT INTO dogs (name, breed, birth_date, age_text, weight_kg, color, image_url, daily_treat_limit, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO dogs (name, breed, birth_date, age_text, weight_kg, color, image_url,"
+                " daily_treat_limit, pronoun, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (dog.name, dog.breed, dog.birth_date, dog.age_text, dog.weight_kg, dog.color, dog.image_url,
-                 dog.daily_treat_limit, dog.created_at))
+                 dog.daily_treat_limit, dog.pronoun, dog.created_at))
             dog.id = cur.lastrowid
         for ex_id in EXERCISES:
             self.save_progress(new_progress(dog.id, ex_id))
@@ -251,7 +253,8 @@ class AppStore:
         return Dog(**{**dict(r), "archived": bool(r["archived"])}) if r else None
 
     def update_dog(self, dog_id: int, values: Dict) -> Dog:
-        allowed = {"name", "breed", "birth_date", "age_text", "weight_kg", "color", "image_url", "daily_treat_limit", "archived"}
+        allowed = {"name", "breed", "birth_date", "age_text", "weight_kg", "color", "image_url",
+                   "daily_treat_limit", "pronoun", "archived"}
         unknown = set(values) - allowed
         if unknown:
             raise KeyError(f"Unknown dog fields: {sorted(unknown)}")

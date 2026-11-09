@@ -23,7 +23,7 @@ const REPS = 10;
 const rand = (a, b) => a + Math.random() * (b - a);
 const now = () => performance.now() / 1000;
 
-function speak(text) {
+export function speak(text) {
   try {
     if (!("speechSynthesis" in window)) return;
     const u = new SpeechSynthesisUtterance(text);

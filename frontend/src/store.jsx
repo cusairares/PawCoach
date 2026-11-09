@@ -1,43 +1,27 @@
-// App-wide state consuming IPetRepository (implemented by HttpRepository).
+// App-wide state consuming FastAPI (when server is running) and IPetRepository (HttpRepository)
+// for Moments, Leaderboard, and offline AP resilience.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { api } from "./api.js";
+import { WEEK_ALL, WEEK_DAYS } from "./data/mock.js";
+import { toDog, toSchedule, weekLabels, weekValues } from "./data/fromApi.js";
 import { petRepository } from "./repositories/HttpRepository.js";
 
 const StoreContext = createContext(null);
+const REFRESH_MS = 5000;
 
 export function StoreProvider({ children, repository = petRepository }) {
+  const [source, setSource] = useState("loading");
+  const [health, setHealth] = useState(null);
   const [dogs, setDogs] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [week, setWeek] = useState({ values: WEEK_ALL, labels: WEEK_DAYS });
   const [feeder, setFeeder] = useState({ online: true, hopper: 68, portion: "small" });
   const [camera, setCamera] = useState({ online: true, nightVision: true, microphone: false, speaker: true });
   const [toast, setToast] = useState(null);
+  const [error, setError] = useState(null);
   const [feedMoments, setFeedMoments] = useState([]);
   const [apStatus, setApStatus] = useState("synced");
   const toastTimer = useRef(null);
-
-  // Load domain state from repository on startup
-  useEffect(() => {
-    let mounted = true;
-    async function loadData() {
-      try {
-        const [dogsList, schedulesList, devicesData, initialMoments] = await Promise.all([
-          repository.getDogs(),
-          repository.getSchedules(),
-          repository.getDevices(),
-          repository.getRandomMoments(6),
-        ]);
-        if (!mounted) return;
-        setDogs(dogsList);
-        setSchedules(schedulesList);
-        if (devicesData?.feeder) setFeeder(devicesData.feeder);
-        if (devicesData?.camera) setCamera(devicesData.camera);
-        setFeedMoments(initialMoments);
-      } catch (err) {
-        console.warn("Error loading data from repository:", err);
-      }
-    }
-    loadData();
-    return () => { mounted = false; };
-  }, [repository]);
 
   const showToast = useCallback((text) => {
     clearTimeout(toastTimer.current);
@@ -45,60 +29,154 @@ export function StoreProvider({ children, repository = petRepository }) {
     toastTimer.current = setTimeout(() => setToast(null), 2400);
   }, []);
 
+  const showError = useCallback((message) => {
+    setError(String(message || "Something went wrong"));
+  }, []);
+
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  // ---------------------------------------------------------------- loading
+  const refresh = useCallback(async () => {
+    const [apiDogs, apiSchedules, daily] = await Promise.all([api.dogs(), api.schedules(), api.daily(7)]);
+    setDogs(apiDogs.map((d) => toDog(d, apiSchedules)));
+    setSchedules(apiSchedules.map((s) => toSchedule(s, apiDogs)));
+    setWeek({ values: weekValues(daily), labels: weekLabels(daily) });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const h = await api.health();
+        await refresh();
+        const initialMoments = await repository.getRandomMoments(6);
+        if (cancelled) return;
+        setHealth(h);
+        setFeeder((f) => ({ ...f, online: true }));
+        setCamera((c) => ({ ...c, online: h.camera }));
+        setFeedMoments(initialMoments);
+        setApStatus("synced");
+        setSource("api");
+      } catch {
+        if (cancelled) return;
+        const [dogsList, schedulesList, devicesData, initialMoments] = await Promise.all([
+          repository.getDogs(),
+          repository.getSchedules(),
+          repository.getDevices(),
+          repository.getRandomMoments(6),
+        ]);
+        if (cancelled) return;
+        setDogs(dogsList);
+        setSchedules(schedulesList);
+        if (devicesData?.feeder) setFeeder(devicesData.feeder);
+        if (devicesData?.camera) setCamera(devicesData.camera);
+        setFeedMoments(initialMoments);
+        setApStatus("offline");
+        setSource("mock");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refresh, repository]);
+
+  useEffect(() => {
+    if (source !== "api") return undefined;
+    const id = setInterval(() => refresh().catch(() => {}), REFRESH_MS);
+    return () => clearInterval(id);
+  }, [source, refresh]);
+
+  // ---------------------------------------------------------------- local helpers & actions
+  const updateDogLocal = useCallback((id, fn) => {
+    setDogs((ds) => ds.map((d) => (d.id === id ? fn(d) : d)));
+  }, []);
+
+  const dogsRef = useRef(dogs);
+  dogsRef.current = dogs;
+
+  /** Optimistic local change, then the server; on error the server's error dialog is shown and data comes back. */
+  const sync = useCallback(async (call) => {
+    if (source !== "api") return;
+    try {
+      await call();
+    } catch (err) {
+      showError(err.message || "The server didn't accept that");
+    }
+    refresh().catch(() => {});
+  }, [source, refresh, showError]);
+
   const addDog = useCallback(async (data) => {
+    if (source === "api") {
+      try {
+        const weightNum = parseFloat(String(data.weight || "").replace(/[^0-9.]/g, ""));
+        const created = await api.addDog({
+          name: data.name.trim(),
+          breed: data.breed || "Mixed breed",
+          weight_kg: Number.isFinite(weightNum) && weightNum > 0 ? weightNum : null,
+          age_text: data.age || "1 yr",
+          image_url: data.image || "/dogs/default.jpg",
+          pronoun: data.pronoun || "he",
+        });
+        await refresh();
+        showToast(`${created.name} added to your family!`);
+        return created;
+      } catch (err) {
+        showError(err.message || "Couldn't add pet");
+        return null;
+      }
+    }
     const created = await repository.createDog(data);
     setDogs((prev) => [created, ...prev]);
     showToast(`${created.name} added to your family!`);
     return created;
-  }, [repository, showToast]);
+  }, [source, refresh, repository, showToast, showError]);
 
-  const giveTreat = useCallback(async (dogId) => {
-    const res = await repository.giveTreat(dogId);
-    if (!res.ok) return false;
-    setDogs((prev) =>
-      prev.map((d) => (d.id === dogId ? { ...d, treatsToday: res.treatsToday } : d))
-    );
-    if (res.hopper !== undefined) {
-      setFeeder((f) => ({ ...f, hopper: res.hopper }));
-    }
+  /** Mock mode: gives a treat to a dog if under its daily limit. Returns true if dispensed. */
+  const giveTreat = useCallback((id) => {
+    const dog = dogsRef.current.find((d) => d.id === id);
+    if (!dog || dog.treatsToday >= dog.treatLimit) return false;
+    dogsRef.current = dogsRef.current.map((d) => (d.id === id ? { ...d, treatsToday: d.treatsToday + 1 } : d));
+    setDogs(dogsRef.current);
+    setFeeder((f) => ({ ...f, hopper: Math.max(0, Math.round((f.hopper - 0.5) * 10) / 10) }));
+    repository.giveTreat(id).catch(() => {});
     return true;
   }, [repository]);
 
-  const addSuccess = useCallback(async (dogId) => {
-    const updated = await repository.addSuccess(dogId);
-    if (updated) {
-      setDogs((prev) => prev.map((d) => (d.id === dogId ? updated : d)));
+  const addSuccess = useCallback((id) => {
+    updateDogLocal(id, (d) => ({ ...d, successesToday: d.successesToday + 1 }));
+    repository.addSuccess(id).catch(() => {});
+  }, [updateDogLocal, repository]);
+
+  const setExerciseStage = useCallback((dogId, exId, stage) => {
+    updateDogLocal(dogId, (d) => ({ ...d, exercises: d.exercises.map((e) => (e.id === exId ? { ...e, stage } : e)) }));
+    repository.setExerciseStage(dogId, exId, stage).catch(() => {});
+    const dog = dogsRef.current.find((d) => d.id === dogId);
+    if (dog?.apiId != null) {
+      sync(() => api.setStage(dog.apiId, exId, stage));
     }
-  }, [repository]);
+  }, [updateDogLocal, repository, sync]);
 
-  const setExerciseStage = useCallback(async (dogId, exId, stage) => {
-    const updated = await repository.setExerciseStage(dogId, exId, stage);
-    if (updated) {
-      setDogs((prev) => prev.map((d) => (d.id === dogId ? updated : d)));
+  const updateSchedule = useCallback((id, patch) => {
+    setSchedules((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    repository.updateSchedule(id, patch).catch(() => {});
+    const body = {};
+    if ("on" in patch) body.enabled = patch.on;
+    if ("max" in patch) body.max_treats = patch.max;
+    sync(() => api.updateSchedule(id, body));
+  }, [repository, sync]);
+
+  /** "Dispense a test treat" in Settings > Feeder. */
+  const testTreat = useCallback(async () => {
+    if (source !== "api") return true;
+    try {
+      return (await api.testTreat()).ok;
+    } catch (err) {
+      showError(err.message || "The feeder didn't respond");
+      return false;
     }
-  }, [repository]);
-
-  const updateSchedule = useCallback(async (id, patch) => {
-    const updated = await repository.updateSchedule(id, patch);
-    if (updated) {
-      setSchedules((prev) => prev.map((s) => (s.id === id ? updated : s)));
-    }
-  }, [repository]);
-
-  const updateFeeder = useCallback(async (patch) => {
-    const nextFeeder = { ...feeder, ...patch };
-    setFeeder(nextFeeder);
-    await repository.updateDevice("feeder", patch);
-  }, [feeder, repository]);
-
-  const updateCamera = useCallback(async (patch) => {
-    const nextCamera = { ...camera, ...patch };
-    setCamera(nextCamera);
-    await repository.updateDevice("camera", patch);
-  }, [camera, repository]);
+  }, [source, showError]);
 
   const toggleLikeMoment = useCallback(async (momentId) => {
-    // Optimistic UI update
     let nextLiked = false;
     setFeedMoments((prev) =>
       prev.map((m) => {
@@ -110,7 +188,6 @@ export function StoreProvider({ children, repository = petRepository }) {
         return m;
       })
     );
-    // Persist via repository
     await repository.setMomentLike(momentId, "user_me", nextLiked);
   }, [repository]);
 
@@ -128,16 +205,18 @@ export function StoreProvider({ children, repository = petRepository }) {
 
   const value = useMemo(() => ({
     repository,
-    dogs, schedules, feeder, camera, toast,
+    source, health, dogs, schedules, week, feeder, camera, toast, error,
     moments: feedMoments, apStatus,
-    getDog: (id) => dogs.find((d) => d.id === id),
-    addDog, showToast, giveTreat, addSuccess, setExerciseStage,
-    updateSchedule, setFeeder: updateFeeder, setCamera: updateCamera,
+    getDog: (id) => dogs.find((d) => d.id === String(id)),
+    addDog, showToast, showError, clearError, refresh, giveTreat, addSuccess,
+    setExerciseStage, updateSchedule, testTreat,
+    setFeeder, setCamera,
     toggleLikeMoment, loadMoreRandomMoments,
   }), [
-    repository, dogs, schedules, feeder, camera, toast, feedMoments, apStatus,
-    addDog, showToast, giveTreat, addSuccess, setExerciseStage, updateSchedule,
-    updateFeeder, updateCamera, toggleLikeMoment, loadMoreRandomMoments,
+    repository, source, health, dogs, schedules, week, feeder, camera, toast, error,
+    feedMoments, apStatus, addDog, showToast, showError, clearError, refresh,
+    giveTreat, addSuccess, setExerciseStage, updateSchedule, testTreat,
+    toggleLikeMoment, loadMoreRandomMoments,
   ]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

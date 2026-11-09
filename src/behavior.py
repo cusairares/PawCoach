@@ -114,7 +114,7 @@ class BehaviorController:
             self.audio.play(["marker"])
             treat, reason = False, "reward_disabled"
             if s.active_command_reward:
-                treat, reason = self._try_treat(now)
+                treat, reason = self._try_treat(now, "command")
             return [self._finish(now, passive, "command_success", active,
                                  reaction_s=active.since - cmd.started_at, treat=treat,
                                  detail=None if treat else reason)]
@@ -149,7 +149,7 @@ class BehaviorController:
         last = self._last_capture.get(pose)
         if last is not None and now - last < s.passive_pose_cooldown_s:
             return []
-        treat, reason = self._try_treat(now)
+        treat, reason = self._try_treat(now, "passive")
         if not treat and not s.passive_sound_when_treat_blocked:
             return [self._log(Event("passive_capture", target=pose, detected=pose,
                                     treat=False, detail=f"silent:{reason}"))]
@@ -161,14 +161,15 @@ class BehaviorController:
     def treats_today(self) -> int:
         return self.event_log.treats_since(start_of_day(self.wall_clock()))
 
-    def _try_treat(self, now: float) -> Tuple[bool, str]:
+    def _try_treat(self, now: float, source: str) -> Tuple[bool, str]:
+        """``source``: passive | command | manual (the treat guard can treat them differently)."""
         s = self.settings.current
         if self.treats_today() >= s.daily_treat_limit:
             return False, "daily_limit"
         if self._last_treat is not None and now - self._last_treat < s.min_seconds_between_treats:
             return False, "min_interval"
         if self.treat_guard is not None:                    # per-dog / per-schedule limits
-            ok, reason = self.treat_guard(now, self.context)
+            ok, reason = self.treat_guard(now, {**self.context, "source": source})
             if not ok:
                 return False, reason
         if not self.feeder.dispense():
@@ -178,7 +179,7 @@ class BehaviorController:
 
     def give_treat(self, now: float) -> Tuple[bool, str]:
         """Manual treat from the app (Treat button). Same limits as automatic treats."""
-        treat, reason = self._try_treat(now)
+        treat, reason = self._try_treat(now, "manual")
         self._log(Event("manual_treat", treat=treat, detail=None if treat else reason))
         return treat, reason
 
@@ -186,7 +187,9 @@ class BehaviorController:
         event.ts = self.wall_clock()
         if event.dog_id is None:
             event.dog_id = self.context.get("dog_id")
-        if event.schedule_id is None:
+        # A learning window's schedule only covers passive captures; a training session covers all.
+        if event.schedule_id is None and (event.kind == "passive_capture"
+                                          or self.context.get("schedule_scope", "all") == "all"):
             event.schedule_id = self.context.get("schedule_id")
         self.event_log.add(event)
         return event
