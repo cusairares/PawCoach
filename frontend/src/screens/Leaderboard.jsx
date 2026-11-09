@@ -1,26 +1,45 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Avatar, Segmented } from "../components/ui.jsx";
-import { LB_CATEGORIES, LB_SCOPES, leaderboard } from "../data/mock.js";
+import { LB_CATEGORIES, LB_SCOPES } from "../data/mock.js";
 import { useStore } from "../store.jsx";
 
 const STEP_HEIGHT = { 1: 120, 2: 92, 3: 76 };
 
 function moveText(move) {
-  if (move.startsWith("+")) return { text: `▲${move.slice(1)}`, tone: "up" };
-  if (move.startsWith("-")) return { text: `▼${move.slice(1)}`, tone: "down" };
+  if (move?.startsWith("+")) return { text: `▲${move.slice(1)}`, tone: "up" };
+  if (move?.startsWith("-")) return { text: `▼${move.slice(1)}`, tone: "down" };
   return { text: "–", tone: "same" };
 }
 
 export default function Leaderboard() {
-  const { showToast } = useStore();
+  const { repository, showToast } = useStore();
   const [scope, setScope] = useState("city");
   const [category, setCategory] = useState("score");
-  const entries = leaderboard(category);
+  const [entries, setEntries] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchLeaderboard() {
+      try {
+        const data = await repository.getLeaderboard(category, scope);
+        if (mounted) setEntries(data);
+      } catch (err) {
+        console.warn("Failed to load leaderboard:", err);
+      }
+    }
+    fetchLeaderboard();
+    return () => { mounted = false; };
+  }, [category, scope, repository]);
+
+  if (!entries || entries.length < 3) {
+    return <div className="screen"><p className="muted center">Loading leaderboard…</p></div>;
+  }
+
   const podium = [entries[1], entries[0], entries[2]];
-  const me = entries.find((e) => e.mine);
-  const n = me.move.slice(1);
-  const meNote = me.move.startsWith("+") ? `Up ${n} places this week`
-    : me.move.startsWith("-") ? `Down ${n} places this week` : "Same place as last week";
+  const me = entries.find((e) => e.mine) || entries[0];
+  const n = me.move ? me.move.slice(1) : "";
+  const meNote = me.move?.startsWith("+") ? `Up ${n} places this week`
+    : me.move?.startsWith("-") ? `Down ${n} places this week` : "Same place as last week";
 
   return (
     <div className="screen">
