@@ -201,6 +201,8 @@ p { margin: 0; }
 .cam-chip--talk { top: 48px; left: 12px; background: var(--peach); color: var(--ink); font-size: 12px; }
 .cam-hold { position: absolute; left: 12px; right: 12px; bottom: 12px; background: rgba(46, 38, 33, 0.85); color: #F3EDE6; border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .cam-hold strong { color: #FFFFFF; }
+/* hold progress under the camera (Live) */
+.hold-card { background: var(--surface); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-weight: 700; }
 .cam-progress { height: 8px; background: var(--cam-dog); border-radius: 99px; overflow: hidden; }
 .cam-progress > div { height: 100%; background: var(--honey); border-radius: 99px; transition: width 0.15s linear; }
 @keyframes pulse { 50% { opacity: 0.35; } }

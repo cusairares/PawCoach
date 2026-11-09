@@ -1,11 +1,11 @@
 // Live training session driven by the backend (server/main.py).
 //
-// Polls GET /api/status a few times a second and turns it into the same view the simulated
-// session (useLiveSession.js) gives the Live screen: detected pose, running cue, hold progress,
-// rep counter and the latest event message. Cues and treats are sent to the server.
+// Polls GET /api/status a few times a second and turns it into what the Live screen shows:
+// the pose confirmed by the server's posture classifier, running cue, hold progress, rep counter
+// and the latest event message. Cues and treats are sent to the server.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
-import { CUES, POSE_LABEL, playClick, speak } from "./useLiveSession.js";
+import { CUES, POSE_LABEL, playClick, speak } from "./liveCues.js";
 
 const POLL_MS = 250;
 const REPS = 10;

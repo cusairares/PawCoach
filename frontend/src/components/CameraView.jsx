@@ -2,15 +2,14 @@ import React from "react";
 
 // Live camera view.
 // In camera mode or with streamSrc, it streams the MJPEG feed.
-// Without a stream it plays the annotated demo video (skeleton + posture HUD). The offline
-// session (useLiveSession.js) gets ``videoRef`` and keeps the video on the clip it is reading.
+// Live passes the server's stream (/api/video): the frames the posture classifier reads.
+// Without a stream it falls back to the annotated demo video.
 
 export default function CameraView({
   pose,
   poseLabel,
   streamSrc = null,
   videoSrc = "/moments/video_demo_annotated.mp4",
-  videoRef = null,
   children,
 }) {
   return (
@@ -19,7 +18,6 @@ export default function CameraView({
         <img className="cam-stream" src={streamSrc} alt="Live stream" />
       ) : videoSrc ? (
         <video
-          ref={videoRef}
           className="cam-stream"
           src={videoSrc}
           autoPlay

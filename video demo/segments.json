@@ -1,6 +1,6 @@
 {
   "video": "video demo.mp4",
-  "note": "Hand-labelled ground truth (seconds) for the mock dog: where the dog in the demo video is clearly lying, sitting or standing. Labelled by looking at the frames, NOT by the classifier, so the live classifier is checked against it instead of agreeing with itself. Transitions are left out. 'hard' = the current classifier gets this stretch wrong (clip 3, small dog on a bench); the mock dog skips those unless started with --mock-hard. After editing, run: python tools/demo_timeline.py",
+  "note": "Hand-labelled ground truth (seconds) for the mock dog: where the dog in the demo video is clearly lying, sitting or standing. Labelled by looking at the frames, NOT by the classifier, so the live classifier is checked against it instead of agreeing with itself. Transitions are left out. 'hard' = the current classifier gets this stretch wrong (clip 3, small dog on a bench); the mock dog skips those unless started with --mock-hard. To re-check against the classifier: python tools/eval_demo_segments.py",
   "segments": {
     "lying": [[1.0, 2.4], [6.7, 9.4], [12.0, 13.0], {"span": [25.7, 27.4], "hard": true}],
     "sitting": [[5.0, 5.8], [11.0, 11.6], [19.0, 20.5], {"span": [21.5, 22.5], "hard": true}, {"span": [29.0, 30.5], "hard": true}],

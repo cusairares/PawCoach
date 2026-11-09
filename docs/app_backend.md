@@ -48,10 +48,12 @@ le greșește (clipul 3, câinele pe bancă: culcat/șezând citite ca „standi
 varianta veche (fără modele; o folosesc și testele). Dacă video-ul, `onnxruntime` sau modelele
 lipsesc, serverul trece singur pe `synthetic` și scrie motivul în `status.sim.note`.
 
-Aplicația, când nu găsește serverul, face același lucru în browser: redă video-ul demo pe
-segmentul ales și decide din ieșirea clasificatorului precalculată în
-`frontend/public/demo/timeline.json`. După ce schimbi modelele, video-ul sau segmentele, rulează
-`python tools/demo_timeline.py` (regenerează fișierul și afișează acuratețea pe fiecare segment).
+Ecranul Live din aplicație merge **doar prin API**: comenzile pleacă la `POST /api/commands`,
+iar poziția, menținerea și rezultatul vin din `GET /api/status`, calculate de clasificatorul de pe
+server. Imaginea e stream-ul serverului (`/api/video`), adică exact cadrele citite de model. Fără
+server, Live nu mai simulează nimic: arată un mesaj că serverul nu e pornit.
+`python tools/eval_demo_segments.py` afișează acuratețea clasificatorului pe fiecare segment din
+`segments.json` (util după reantrenare, ca să știi ce marchezi `hard`).
 
 ## Ce s-a schimbat în codul existent
 

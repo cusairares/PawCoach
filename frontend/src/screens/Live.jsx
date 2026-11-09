@@ -1,21 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import CameraView from "../components/CameraView.jsx";
 import Icon from "../components/Icon.jsx";
 import { Avatar } from "../components/ui.jsx";
 import { api } from "../api.js";
 import { useApiLiveSession } from "../hooks/useApiLiveSession.js";
-import { CUES, playClick, useLiveSession } from "../hooks/useLiveSession.js";
+import { CUES, playClick } from "../hooks/liveCues.js";
 import { useStore } from "../store.jsx";
 
-// Live has two engines with the same view:
-//   ApiLive   the backend runs the session (camera, or the simulated dog whose demo-video
-//             frames go through the real classifier on the server; we show that stream)
-//   MockLive  no server: the browser plays the demo video and decides cues from the
-//             classifier's precomputed output for it (useLiveSession.js)
+// Live runs only through the server API: cues go to POST /api/commands, and the server reads
+// the camera frames with DogDetector + PostureClassifier and reports back in GET /api/status.
+// Nothing is simulated in the browser; without the server, Live says so.
 export default function Live() {
   const { source, dogs } = useStore();
+  if (source !== "api") return <ServerOffline />;
   if (!dogs.length) return <div className="screen"><h1>Live</h1><p className="muted">Add a dog first.</p></div>;
-  return source === "api" ? <ApiLive /> : <MockLive />;
+  return <ApiLive />;
+}
+
+function ServerOffline() {
+  return (
+    <div className="screen">
+      <h1>Live</h1>
+      <div className="card stack-6">
+        <strong>Can't reach the PawCoach server</strong>
+        <p className="muted small">
+          Live training uses the posture classifier on the server. Start it with <code>start-server.bat</code>
+          {" "}(or <code>python -m server</code>), then reload the app.
+        </p>
+        <button type="button" className="btn btn--peach" onClick={() => window.location.reload()}>Try again</button>
+      </div>
+    </div>
+  );
 }
 
 function ApiLive() {
@@ -38,8 +53,7 @@ function ApiLive() {
       onSelectDog={(idx) => setDogIndex(idx)}
       session={session}
       treats={`${session.treatsToday} / ${session.treatLimit}`}
-      // camera, or mock mode reading demo frames with the real models: show what the server sees
-      streamSrc={session.mode === "camera" || session.simSource === "classifier" ? api.videoUrl() : null}
+      streamSrc={api.videoUrl()}                       // what the server's classifier is looking at
       offline={!session.online}
       onCue={onCue}
       onTreat={session.giveTreat}
@@ -47,45 +61,7 @@ function ApiLive() {
   );
 }
 
-function MockLive() {
-  const { dogs, giveTreat, addSuccess, showToast } = useStore();
-  // Demo lock: default to first dog
-  const [dogIndex, setDogIndex] = useState(0);
-  const dog = dogs[dogIndex % dogs.length];
-  const videoRef = useRef(null);
-
-  const session = useLiveSession({
-    onReward: () => {
-      addSuccess(dog.id);
-      return giveTreat(dog.id);
-    },
-    videoRef,
-  });
-
-  const onCue = (id) => {
-    if (!session.giveCue(id)) showToast("Wait for the current cue to finish");
-  };
-  const onTreat = () => {
-    const ok = giveTreat(dog.id);
-    session.logEvent(ok ? "good" : "bad", ok ? "Treat given" : "Daily treat limit reached");
-  };
-
-  return (
-    <LiveView
-      dog={dog}
-      dogs={dogs}
-      dogIndex={dogIndex}
-      onSelectDog={(idx) => setDogIndex(idx)}
-      session={session}
-      treats={`${dog.treatsToday} / ${dog.treatLimit}`}
-      videoRef={videoRef}
-      onCue={onCue}
-      onTreat={onTreat}
-    />
-  );
-}
-
-function LiveView({ dog, dogs = [], dogIndex = 0, onSelectDog, session, treats, streamSrc = null, videoRef = null, offline = false, onCue, onTreat }) {
+function LiveView({ dog, dogs = [], dogIndex = 0, onSelectDog, session, treats, streamSrc = null, offline = false, onCue, onTreat }) {
   const [talking, setTalking] = useState(false);
   const [accordionOpen, setAccordionOpen] = useState(false);
   const cue = session.activeCue;
@@ -223,19 +199,20 @@ function LiveView({ dog, dogs = [], dogIndex = 0, onSelectDog, session, treats, 
         )}
       </header>
 
-      <CameraView pose={session.pose} poseLabel={session.poseLabel} streamSrc={streamSrc} videoRef={videoRef}>
+      <CameraView pose={session.pose} poseLabel={session.poseLabel} streamSrc={streamSrc}>
         {offline && <span className="cam-chip cam-chip--talk">Reconnecting to the feeder…</span>}
         {!offline && talking && <span className="cam-chip cam-chip--talk">Speaking through the speaker…</span>}
-        <div className="cam-hold">
-          <div className="small">
-            <span>
-              {cue ? <>Hold “{cue.label}” · <strong>{session.heldS.toFixed(1)} / {cue.holdS.toFixed(1)} s</strong></>
-                : "Pick a cue to start"}
-            </span>
-          </div>
-          <div className="cam-progress"><div style={{ width: `${progress}%` }} /></div>
-        </div>
       </CameraView>
+
+      <div className="hold-card">
+        <div className="small">
+          <span>
+            {cue ? <>Hold “{cue.label}” · <strong>{session.heldS.toFixed(1)} / {cue.holdS.toFixed(1)} s</strong></>
+              : "Pick a cue to start"}
+          </span>
+        </div>
+        <div className="cam-progress"><div style={{ width: `${progress}%` }} /></div>
+      </div>
 
       <div className="cue-grid" role="group" aria-label="Cues">
         {Object.values(CUES).map((c) => (
