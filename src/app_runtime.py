@@ -188,6 +188,10 @@ class AppRuntime:
         self._running = False
         if self._camera is not None:
             self._camera.release()
+        if hasattr(self, 'store'):
+            self.store.close()
+        if hasattr(self, 'event_log'):
+            self.event_log.close()
 
     def _run(self) -> None:
         interval = 1.0 / self.fps

@@ -215,3 +215,10 @@ class EventLog:
             streak += 1
             day -= timedelta(days=1)
         return streak
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
