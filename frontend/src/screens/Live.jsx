@@ -94,7 +94,7 @@ function LiveView({ dog, session, treats, streamSrc = null, offline = false, onS
         <span className="pill">{treats} treats</span>
       </header>
 
-      <CameraView pose={session.pose} poseLabel={session.poseLabel} confidence={session.confidence} streamSrc={streamSrc}>
+      <CameraView pose={session.pose} poseLabel={session.poseLabel} streamSrc={streamSrc}>
         {offline && <span className="cam-chip cam-chip--talk">Reconnecting to the feeder…</span>}
         {!offline && talking && <span className="cam-chip cam-chip--talk">Speaking through the speaker…</span>}
         <div className="cam-hold">
